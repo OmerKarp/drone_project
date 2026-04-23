@@ -1,0 +1,303 @@
+% +---------------------+
+% | Author - Omer Karp  |
+% |  Date  - 23/04/2026 |
+% +---------------------+
+
+%% <================== Simulation ==================>
+clc
+clear
+close all
+
+raw_hex = 'D2C3DC7944AD98BC9B162C46F995D696676B5DB62EE26220D0E1D99DA5BE9F9CD8CC696B5AB2F2428634B86246FB3E2D5B44E562C65E8E1B9988488761F4780827A302E3A702508CD0949D49AA623B677F430D0366836184BEA10BE88307F60F882F500AFE0D02061CBC42CBDA2F695815D2E24BD353ADB41D285702586301C79BDDE8AC766B3F1ECBC174BCC175969C43B33F92E48FEFDDA1B6870C3BA04592DFE25F71D2E63BA7B0228B241F421F06658920C622CAA7BF8ED08D8F541CBCD3B7F6E9351548B441546117C9B1B7DCEBB33F01865F0E5ECE8AD8C92727503BAFF0A60493CBD560DDAD353041DAD3811ABFC0698FE7F3F78A52095092739779D9C612C95233D734BB565413E0CAEC6C488767C0F28633F9FFF6AB195D5DD98459083F4474194561B74142CAC2767BE3437C90AF3642A958FDB6D85AA7F0B6804F809076910A2C35DEC2A4E27AF6948B4657449E5BA94AEDC582EBF1EDD5E0FF9144E02E0A2AA5A2687320053649A8957D4EA32994D0B5587C230771DD93256ABE1336C2ABE5B29A8C8C96D22B54A09A14D019E49BADE171B623656EA714019252DF5FCDF42582498B75D8C218E34C78CA0A1737552A8117857B0BE95E11CC6B48E7B3184FDC464469B8BB0ADBF61C78B21FC1B0F323CB1C1799A1F6E4D31608A2DC3E994B8CC311B53F0049A59E30F611023DB45CC9A2A4CC9E124088E50733381D8E565BE34AD8C48733C3DD160BEFF4EDFCB1D2908D28E558C00D6CD6B79E431F3B880942DFE28D6328F0C6A8671F2E534B598634E4B8E48DAEA9EE3F0A21569942731B2918CE67D68612F7789D84C0BD27C38EDB7AF413A82086F7CBA9B776190A0DB5061632BDDC74C04DBC6AB1F921E4325115EF91DE17FB15665550BB67174BC982EF1DCC1E846993B3A4F6CBCCE8B81BC1C917345C48223E95822BD8F7EEA02DD344988F3AB95E901B86E14654A9233A7E07DEA7ACB5DF7D972A7659DC77AFF7C12E8090986585E0CCCB10ED14AC84788718A5EB18ABD3FD9F81476C3C3E257467DFEAF067773649DAD20A2BAF72911BCA74344228B70A11AA3B8C5EB88F39A65150840E2702809B748CD48681802706F01FF293787EF3B4879CE2C34DC70F2D168DE3FB470DFFCDA260AB0618434DBAE9DD3C12C8E5CB53D262C676EED37DA735DF5E95F7B0FAEE9A942EE4F88180B9D954826062B459FB003034CAF124BF86530B95EF9D5CBAF3DD8269205BCFD2863112E4CE9868F243839299BA5D20751F3C';
+
+[packet_obj, is_data_corrupted] = bits_layer(raw_hex)
+
+%% <================== Bits Layer ==================>
+
+% Author - Omer Karp
+% Desc - returns an obj of the packet, and also if the data is corrupt
+function [packet_obj, is_data_corrupted] = bits_layer(packet_in_hex)
+    % First we transform the hex raw data to bits raw data
+    raw_bits = large_hex_data_to_bits(packet_in_hex);
+
+    % A packet is the demodulated data, containing 7,200 bits -> 900 bytes, so length(packet) = 7,200.
+    % Out of that, only 91 bytes (728 bits) are data.
+    packet_length = length(raw_bits);
+
+    % Section 3.2 - XOR mask
+    XOR_mask = gen_gold_code();
+    data_unmasked = xor(raw_bits, XOR_mask.');
+
+    % Section 3.3 - CP (cyclic prefix)
+    % we need to go from 7,200 bits down to 4,236
+    %
+    % the data starts at index 4148 and its length is 4236, looping back to
+    % the start after reaching the end of the data, until index = mod(4148 + 4236, 7200) = 1184.
+    %
+    %                  ______________(cyclical prefix)__________
+    % example:         ↑ ↑ ↑ ↑ ↑ ↑↑↑                     |      \
+    % unmasked_data = [1 2 3 4 5 ... 4148 4149 ... end]  |       \
+    %                                  ↓   ↓   ↓↓↓  ↓   /|\       \
+    % no_CP_data    =               [4148 4149 ... end 1 2 3 ... 1184]
+
+    index_start_of_data = 4148; % MAYBE +1???
+    number_of_data_bits = 4236;
+    last_index = mod(index_start_of_data + number_of_data_bits, packet_length);
+
+    data_with_no_CP = [data_unmasked(index_start_of_data : end) data_unmasked(1 : last_index - 1)];
+
+    % Section 3.4 - Error correction code & Interleaver
+    data_no_ECC = remove_error_correction_code_bits(data_with_no_CP);
+
+    % Section 3.5 - CRC
+    % We are now left with 1408 bits, the last 24 are CRC, a quick check in
+    % Wikipedia showed that this is the CRC-24-Radix-64 version.
+    % Source: https://en.wikipedia.org/wiki/Cyclic_redundancy_check#Polynomial_representations
+    %
+    % The polynomial:
+    % x^24 + x^23 + x^18 + x^17 + x^14 + x^11 + x^10 + x^7 + x^6 + x^5 + x^4 + x^3 + x + 1
+    
+    CRC24_poly = 'z^24 + z^23 + z^18 + z^17 + z^14 + z^11 + z^10 + z^7 + z^6 + z^5 + z^4 + z^3 + z + 1';
+    % CRC24_poly = [1 1 0 0 0 0 1 1 0 0 1 0 0 1 1 0 0 1 1 1 1 1 0 1 1];
+    [data_no_CRC24, is_data_corrupted] = check_CRC(data_no_ECC, CRC24_poly);
+    if is_data_corrupted
+        disp('(-) CRC24 Check Failed, Data is corrupted.');
+        packet_obj = -1;
+        return
+    end
+
+    % Section 3.6 - Packet Structure & Data Validation
+    packet_obj = get_data_from_raw_packet(data_no_CRC24);
+
+    % The polynomial & Initial State
+    CRC16_poly = 'z^16 + x^11 + x^4 + 1';
+    CRC16_start = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0];
+
+    [~, is_data_corrupted] = check_CRC(packet_obj.RawBits, CRC16_poly, CRC16_start);
+    if is_data_corrupted
+        disp('(-) CRC16 Check Failed, Data is corrupted.');
+        return
+    end
+
+    
+end
+
+%% <================== My Functions ==================>
+
+% Author - Omer Karp
+function raw_bits = large_hex_data_to_bits(raw_hex)
+    % Map each hex digit to its 4 bits binary form
+    hex_map = dec2bin(0:15, 4) - '0';
+    
+    % Convert hex characters to indices (0-15)
+    idx = hex2dec(raw_hex(:)) + 1;
+    
+    % Retrieve bits and reshape into a single row
+    raw_bits = reshape(hex_map(idx, :).', 1, []);
+end
+
+% Author - Omer Karp
+% Section 3.4
+function data_no_ECC = remove_error_correction_code_bits(data)
+    % We get "data" as a 4,236 bits array, it is made out of 3 parts, S, P1
+    % and P2, interleaved and manipulated inside of it, each part is 4,236 / 3 = 1,412 bits.
+    %
+    % 
+
+    u = data(1 : 1 + length(data)/3);
+
+    pi_interleaver = mod((43 * (1 : 1408) + 88 * (1 : 1408).^2), 1408);
+    u_tag = u(pi_interleaver);
+
+    data_no_ECC = 1
+end
+
+% Author - Omer Karp
+% Section 3.4
+% Desc: implemented the Viterbi algorithm just like we did in class.
+function y = ConvDecode(r)
+    m = 3;
+    number_of_states = 2^m;
+
+    number_input_bits = 1;
+    number_of_possible_inputs = 2^number_input_bits;
+    number_output_bits = 2;
+
+    N = length(r)/number_output_bits;
+
+    next_state_table = [0 3;
+                        2 1;
+                        ]
+
+    output = zeros(number_of_states, number_of_possible_inputs, number_of_bits);
+    for state = 0:number_of_states-1
+        m1 = bitget(state, 1);
+        m2 = bitget(state, 2);
+        m3 = 
+
+        for input = 0:number_of_possible_inputs-1
+            out1 = mod(input, 2);               % 1
+            out2 = mod(input + m1 + m2 + m3, 2);   % 1 + D + D^2 + D^3
+            output(state+1,input+1,:) = [out1 out2];
+        end
+    end
+    
+    edges_distances = inf(number_of_states, N+1);
+    edges_distances(1,1) = 0;
+
+    best_previeus_state = zeros(number_of_states, N);
+    input_store = zeros(number_of_states, N);
+
+    for k = 1:N
+        bits_to_decode = r(2*k-1 : 2*k);
+
+        for state = 0:number_of_states-1
+            for input = 0:number_of_possible_inputs-1
+                previues_state = state;
+                next_state = next_state_table(previues_state+1, input+1);
+
+                out = squeeze(output(previues_state+1, input+1, :))';
+
+                branch_metric = sum(bits_to_decode ~= out);
+
+                metric = edges_distances(previues_state+1, k) + branch_metric;
+
+                if metric < edges_distances(next_state+1, k+1)
+                    edges_distances(next_state+1, k+1) = metric;
+                    best_previeus_state(next_state+1, k) = previues_state;
+                    input_store(next_state+1, k) = input;
+                end
+            end
+        end
+    end
+
+    [~, state] = min(edges_distances(:, N+1));
+    state = state-1;
+    y = zeros(1, N);
+    for k = N:-1:1
+        y(k) = input_store(state+1,k);
+        state = 
+end
+
+
+% Author - Omer Karp
+% Section 3.5
+function [data_no_CRC, is_data_corrupted] = check_CRC(data, poly, intial_state)
+    arguments
+        data
+        poly
+        intial_state = -1 % default (not used) state
+    end
+
+    crcConfig(Polynomial=poly)
+    % crcConfig(DirectMethod=true)
+    if intial_state ~= -1
+        crcConfig(InitialConditions=intial_state)
+    end
+
+    % Verify CRC
+    % [~, err] returns 0 if data is clean, 1 if corrupted
+    [data_no_CRC, err] = crcDetect(data);
+    
+    % Display results
+    if err == 0
+        disp('CRC Check Passed: No errors detected.');
+        is_data_corrupted = false;
+    else
+        disp('CRC Check Failed: Data corrupted.');
+        is_data_corrupted = true;
+    end
+end
+
+% Author - Omer Karp
+% Section 3.6
+function packet_obj = get_data_from_raw_packet(data)
+    % Only the first 91 bytes have meaningful data.
+    % So we cut only the first 91 * 8 = 728 bits.
+    packet_data = data(1 : 728);
+    packet_obj.RawBits = data(1 : 728);
+
+    % We then use the helper function the extract the relevant data to an object.
+    packet_obj.PayloadLength = get_value_from_data(packet_data, 1, 0, 'int');
+    % Unknown 1 bytes
+    packet_obj.Version = get_value_from_data(packet_data, 1, 2, 'int');
+    packet_obj.SequenceNumber = get_value_from_data(packet_data, 2, 3, 'int');
+    % packet_obj.StateInfo =
+    packet_obj.SerialNumber = get_value_from_data(packet_data, 16, 7, 'ASCII', true);
+    packet_obj.Longitude = get_value_from_data(packet_data, 4, 23, 'int');
+    packet_obj.Latitude = get_value_from_data(packet_data, 4, 27, 'int');
+    packet_obj.Altitude = get_value_from_data(packet_data, 2, 31, 'int');
+    packet_obj.Height = get_value_from_data(packet_data, 2, 33, 'int');
+    packet_obj.VelocityNorth = get_value_from_data(packet_data, 2, 35, 'int');
+    packet_obj.VelocityEast = get_value_from_data(packet_data, 2, 37, 'int');
+    packet_obj.VelocityUp = get_value_from_data(packet_data, 2, 39, 'int');
+    % Unknown 2 bytes
+    packet_obj.Time = get_value_from_data(packet_data, 8, 43, 'int');
+    packet_obj.AppLatitude = get_value_from_data(packet_data, 4, 51, 'int');
+    packet_obj.AppLongitude = get_value_from_data(packet_data, 4, 55, 'int');
+    packet_obj.HomeLongitude = get_value_from_data(packet_data, 4, 59, 'int');
+    packet_obj.HomeLatitude = get_value_from_data(packet_data, 4, 63, 'int');
+    % packet_obj.DeviceType = 
+    packet_obj.UUIDLength = get_value_from_data(packet_data, 1, 68, 'int');
+    packet_obj.UUID = get_value_from_data(packet_data, 20, 69, 'ASCII', true);
+    packet_obj.CRC16 = get_value_from_data(packet_data, 2, 89, 'int');
+end
+
+% Author - Omer Karp
+% Section 3.6 (Helper)
+function value = get_value_from_data(packet_data, value_length, offset, value_type, is_big_endian)
+    arguments
+        packet_data (1,728)
+        value_length (1,1)
+        offset (1,1)
+        value_type string
+        is_big_endian boolean = false
+    end
+
+    byte_length = 8;
+    bits = packet_data(1 + offset * byte_length : 1 + offset * byte_length + value_length * byte_length);
+    
+    if strcmp(value_type, 'ASCII')
+        % Convert bits to '0'/'1' characters
+        bin_str = char(bits + '0'); 
+
+        % Reshape to 8 bit rows
+        bits_mat = reshape(bin_str, 8, []).'; 
+
+        % Convert each row to 1 ASCII char
+        value = char(bin2dec(bits_mat)).';
+
+    elseif strcmp(value_type, 'int')
+        value = bit2int(packet_data', value_length * byte_length, is_big_endian);
+    end
+end
+
+%% <================== Given Function - Gold Code Generator ==================>
+
+% Author - None (was given)
+function seq = gen_gold_code(Nc, L, seed)
+    arguments
+        Nc (1,1) = 1600
+        L (1,1) = 7200
+        seed (1,1) = 0x12345678
+    end
+
+    x1 = zeros(Nc + L + 31, 1);
+    x2 = zeros(Nc + L + 31, 1);
+    x2(1:32) = flip(fdec2bin(seed, 32));
+    x1(1) = 1;
+
+    for n = 1:(Nc + L)
+        x1(n + 31) = xor(x1(n + 3), x1(n));
+        x2(n + 31) = xor(xor(x2(n + 3), x2(n + 2)), xor(x2(n+1), x2(n)));
+    end
+
+    seq = xor(x1(Nc + 1:Nc+L), x2(Nc + 1:Nc+L));
+end
+
+% Author - Omer Karp
+% Description - Helper function for gen_gold_code(), returns a list instead
+% of a string, example: dec2bin(10) = '1010', fdec2bin(10) = [1 0 1 0]
+function bin_result = fdec2bin(dec_munber, min_digits)
+    bin_result = dec2bin(dec_munber, min_digits) - '0';
+end
