@@ -3,25 +3,28 @@ close all
 clc
 
 %% open signal
-raw_smaple_base = 'C:\Users\eladm\Desktop\drone sigint\raw_samples-20260423T111818Z-3-001\raw_samples\';
-signal_path = [raw_smaple_base,'raw_samples_12_Feb_2026_13_29_59_531_fs_10MHz.32fc'];
+raw_sample_base = 'C:\Users\eladm\Desktop\drone sigint\drone_project\raw_samples-20260423T111818Z-3-001\raw_samples\';
+synced_sample_base = 'C:\Users\eladm\Desktop\drone sigint\drone_project\synced_samples\';
+signal_path = [raw_sample_base,'raw_samples_12_Feb_2026_09_32_36_472_fs_10MHz.32fc'];
+signal_ref_path = [synced_sample_base,'synced_samples_12_Feb_2026_09_32_36_472_fs_15.36MHz.32fc'];
 
-% 1. Open the file
+%Open raw signal
 fid = fopen(signal_path, 'rb'); % 'rb' for read-binary
+data = fread(fid, [inf], 'float32');
+fclose(fid);
+signal = (data(1:2:end) + 1j * data(2:2:end)) ;
 
-% 2. Read the data
-
-data = fread(fid, [2, inf], 'float32');
-
-% 3. Close the file
+%open synced signal
+fid = fopen(signal_ref_path, 'rb'); % 'rb' for read-binary
+data = fread(fid, [inf], 'float32');
 fclose(fid);
 
 % 4. Convert to complex MATLAB data
-signal = complex(data(1,:), data(2,:)).';
+signal = (data(1:2:end) + 1j * data(2:2:end)) ;
 %% get to know the signal. plots
 fs = 10e6;
 ofdm_len = 1024;
-SCS = 15e3;
+SCS = 15e3; %sub carrier spacing
 cp_len = 72;
 cp_len_ends = 80;
 fs_spc_1 = ofdm_len.*SCS;
@@ -31,7 +34,7 @@ L = 0.5*M;
 Ndft = 1024;
 
 signal = resample(signal,fs_spc_1,fs);
-
+fs = fs_spc_1;%update fs
 %cut the signal to ofdm symbol.
 % samp_min = floor(0.059.*fs);
 % samp_max = floor(0.061.*fs);
@@ -75,11 +78,10 @@ zc_seq_sym_4 = seq1;
 zc_seq_sym_6 = seq2;
 
 %%
-[freq_offset,phase_offset] = find_freq_phase_offset(signal,zc_seq_sym_4,zc_seq_sym_6,fs);
-freq_phase_synced_signal = freq_phase_sync_signal(signal,phase_offset,freq_offset,fs);
+[freq_offset,phase_offset,phase_ref_samp] = find_freq_phase_offset(signal,zc_seq_sym_4,zc_seq_sym_6,fs);
+freq_phase_synced_signal = freq_phase_sync_signal(signal,phase_offset,freq_offset,phase_ref_samp,fs);
 samp_offset = find_samp_offset(freq_phase_synced_signal,zc_seq_sym_4,zc_seq_sym_6);
 synced_signal = samp_sync_signal(freq_phase_synced_signal,samp_offset);
-
 demod_symbols = ofdm_demod(synced_signal,cp_len,cp_len_ends,ofdm_len);
 
 
@@ -90,12 +92,13 @@ sig2_8 = sig(ofdm_len+cp_len_ends+1:end-ofdm_len-cp_len_ends); %symbols 2 - 8
 sig9 = sig(end-ofdm_len+1:end);                                  %symbols 9
 
 demod2_8 = reshape(sig2_8,ofdm_len+cp_len,[]);
-demod2_8 = demod2_8(cp_len+1:end,:);
-demod2_8 = fft((demod2_8));
+demod2_8 = demod2_8(cp_len+1:end,:);%cp removal
+
+demod2_8 = fftshift(fft((demod2_8)),1);
 demod2_8 = demod2_8(:);
 
-demod2_8_no_zc = [demod2_8(1:3*ofdm_len) ; demod2_8(4*ofdm_len+1:5*ofdm_len) ; demod2_8(6*ofdm_len+1:end)];
-demod9 = fft((sig9));
+demod2_8_no_zc = [demod2_8(1:2*ofdm_len) ; demod2_8(3*ofdm_len+1:4*ofdm_len) ; demod2_8(5*ofdm_len+1:end)];
+demod9 = fftshift(fft((sig9)));
 
 demod = [demod2_8_no_zc ; demod9];
 demod = reshape(demod,ofdm_len,[]);
@@ -104,13 +107,13 @@ demod = [demod(213:513,:); demod(515:813,:)];
 demod = demod(:);
 end
 
-function [freq_offset,phase_offset] = find_freq_phase_offset(signal,zc_seq_sym_4,zc_seq_sym_6,fs)
+function [freq_offset,phase_offset,phase_ref_samp] = find_freq_phase_offset(signal,zc_seq_sym_4,zc_seq_sym_6,fs)
 %zadoff+cyclic_prefix
 corr1 = ifft(fft((signal)).*fft([conj(flip((zc_seq_sym_4))); zeros(length(signal)-length(zc_seq_sym_4),1)]));
 corr2 = ifft(fft((signal)).*fft([conj(flip((zc_seq_sym_6))); zeros(length(signal)-length(zc_seq_sym_6),1)]));
 
-figure; plot(abs(corr1));
-figure; plot(abs(corr2));
+% figure; plot(abs(corr1));
+% figure; plot(abs(corr2));
 
 [~,samp1] = max(abs(corr1));
 [~,samp2] = max(abs(corr2));
@@ -122,7 +125,7 @@ ofdm_sym_len = 1024;
 cp_len = 72;
 time_diff_zc_sym = 2* (ofdm_sym_len+cp_len)./fs; %2 ofdm_symbols
 freq_offset = phase_diff./(2*pi*time_diff_zc_sym);
-
+phase_ref_samp = samp1;
 
 
 end
@@ -137,15 +140,15 @@ samp_diff_sym_4 = (2* (ofdm_sym_len+cp_len) + ofdm_sym_len+cp_len_ends ); %sampl
 signal2corr = [zc_seq_sym_4 ;zeros(ofdm_sym_len+cp_len,1); zc_seq_sym_6];
 
 [~,samp_offset_signal2corr] = max(abs(ifft(fft(freq_phase_synced_signal).*fft([conj(flip(signal2corr));zeros(length(freq_phase_synced_signal)-length(signal2corr),1)]))));
-samp_offset = samp_offset_signal2corr - samp_diff_sym_4 -length(signal2corr);
+samp_offset = samp_offset_signal2corr - samp_diff_sym_4 - length(signal2corr) + 1;
 
 end
 
-function synced_signal = freq_phase_sync_signal(signal,phase_offset,freq_offset,fs)
+function synced_signal = freq_phase_sync_signal(signal,phase_offset,freq_offset,phase_ref_sample,fs)
 N = length(signal);
-t_val = (0:N-1).' ./fs;
-fix_sig = exp(1j*(-2*pi*freq_offset.*t_val - phase_offset)).*t_val;%signal phase and freq offsets exp signal
-synced_signal = signal.*fix_sig;
+t_val = ((0:N-1) - phase_ref_sample).' ./fs;
+fix_sig_freq_fix = exp(1j*(-2*pi*freq_offset.*t_val - phase_offset));%signal offset
+synced_signal = signal.*fix_sig_freq_fix;
 end
 
 function synced_signal = samp_sync_signal(freq_phase_synced_signal,samp_offset)
