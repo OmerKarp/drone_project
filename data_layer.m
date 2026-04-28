@@ -105,7 +105,6 @@ function [packet_obj, is_data_corrupted] = bits_layer(packet_in_hex)
     % Source: https://en.wikipedia.org/wiki/Cyclic_redundancy_check#Polynomial_representations
     % The polynomial:
     CRC24_poly = 'z^24 + z^23 + z^18 + z^17 + z^14 + z^11 + z^10 + z^7 + z^6 + z^5 + z^4 + z^3 + z + 1';
-    % CRC24_poly = [1 1 0 0 0 0 1 1 0 0 1 0 0 1 1 0 0 1 1 1 1 1 0 1 1];
     
     [data_no_CRC24, is_data_corrupted] = check_CRC(data_no_ECC, CRC24_poly);
     if is_data_corrupted
@@ -329,16 +328,14 @@ end
 % Author - Omer Karp
 % Date - (23/4/2026)
 % Section 3.5
-function [crcBits, is_data_corrupted] = check_CRC(data, poly, initial_state, is_reflect_input, is_direct_method)    
+function [crcBits, is_data_corrupted] = check_CRC(data, poly, initial_state)    
     arguments
         data
         poly
         initial_state = 0 % default (0 when not used) state
-        is_reflect_input = false;
-        is_direct_method = false;
     end
 
-    config = crcConfig(Polynomial=poly, InitialConditions=initial_state, ReflectInputBytes=false, DirectMethod=is_direct_method);
+    config = crcConfig(Polynomial=poly, InitialConditions=initial_state);
     [crcBits, is_data_corrupted] = crcDetect(data.', config);
 end
 
@@ -387,7 +384,11 @@ function packet_obj = get_data_from_raw_packet(data)
     % CRC16_initial_state = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0];
 
     % crc_bits = check_CRC(packet_data, CRC16_poly, CRC16_start);
-    % crc_bits = check_CRC(data, CRC16_poly, CRC16_initial_state, true, true);
+    % bits_mat = reshape(data, 8, []).';
+    % switched_bits_order_mat = flipud(bits_mat).';
+    % bits = reshape(switched_bits_order_mat, 1, []);
+
+    % crc_bits = check_CRC(bits, CRC16_poly, CRC16_initial_state);
 
     % packet_obj.is_CRC_valid = (binaryVectorToHex(crc_bits) == packet_obj.CRC16);
     packet_obj.is_CRC_valid = true;
