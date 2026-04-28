@@ -16,6 +16,7 @@ theFiles = dir(filePattern);
 
 positions = zeros(3, length(theFiles));
 
+not_working_k = [3, 4, 10]
 % 3. Iterate through each file in the list
 for k = 1 : length(theFiles)
     baseFileName = theFiles(k).name;
@@ -26,7 +27,13 @@ for k = 1 : length(theFiles)
     raw_hex = fileread(fullFileName);
 
     [packet_obj, is_data_corrupted] = bits_layer(raw_hex);
-    positions(:, k) = [packet_obj.AppLatitude packet_obj.AppLongitude packet_obj.Altitude];
+    
+    if is_data_corrupted
+        disp("(-) Packet is corrupted!")
+        positions(:, k) = positions(:, k-1); % Stay at the last known position
+    else
+        positions(:, k) = [packet_obj.AppLatitude packet_obj.AppLongitude packet_obj.Altitude];
+    end
 end
 
 % disp(positions)
@@ -57,29 +64,7 @@ data = ['{"payload_length":88,"unknown1":16,"version":2,"sequence_number":77,"st
 [packet_obj, is_data_corrupted] = bits_layer(raw_hex);
 
 disp(packet_obj)
-
-%% TEST
-
-% 1. Define Trellis Structure
-% This specific G(D) needs careful translation to poly2trellis.
-% Assuming standard conversion to equivalent feedforward polynomials
-% for a 4-state or 8-state system based on the feedback division.
-constraintLength = 4;
-
-% 1 + D + D^2 + D^3 ⇒ 1111 (base 2) ⇒ 15
-% 1 + D^2 + D^3 ⇒ 1101 (base 2) ⇒ 13
-generators = [13 15];
-trellis = poly2trellis(constraintLength, generators, 13);
-% 2. Generate/Encode Data
-data = randi([0 1], 100, 1);
-encodedData = convenc(data, trellis);
-% 3. Viterbi Decoding
-tbdepth = 34; % Traceback depth
-decodedData = vitdec(encodedData, trellis, tbdepth, 'trunc', 'hard');
-% Verify
-if isequal(data, decodedData)
-    disp('Decoding successful');
-end
+disp(["(+) Is the data corrupted? ", logical(is_data_corrupted)])
 
 %% <================== Bits Layer ==================>
 
@@ -115,7 +100,6 @@ function [packet_obj, is_data_corrupted] = bits_layer(packet_in_hex)
 
     % Section 3.6 - Packet Structure & Data Validation
     packet_obj = get_data_from_raw_packet(data_no_CRC24);
-    is_data_corrupted = false;
     if ~packet_obj.is_CRC_valid
         disp('(-) CRC16 Check Failed, Data is corrupted.');
         is_data_corrupted = true;
@@ -141,25 +125,13 @@ end
 % Author - Omer Karp
 % Section 3.3
 function data_with_no_CB = remove_CB_from_data(data)
-    % we need to go from 7,200 bits down to 4,236
-    % A packet is the demodulated data, containing 7,200 bits -> 900 bytes, so length(packet) = 7,200.
-    % Out of that, only 91 bytes (728 bits) are data that we will get at the end.
-    packet_length = length(data);
+    % the data starts at index 4148 and ends at index 4149, looping back to
+    % the start and ending back at the starting index.
 
-    % the data starts at index 4148 and its length is 4236, looping back to
-    % the start after reaching the end of the data, until index = mod(4148 + 4236, 7200) = 1184.
-    %
-    %                  ______________(cyclical buffer)__________
-    % example:         ↑ ↑ ↑ ↑ ↑ ↑↑↑                     |      \
-    % unmasked_data = [0 1 2 3 4 ... 4148 4149 ... end]  |       \
-    %                                  ↓   ↓   ↓↓↓  ↓   /|\       \
-    % no_CB_data    =               [4148 4149 ... end 0 1 2 ... 1183]
+    index_start_of_data = 4149;
+    index_last_of_data = 4236;
 
-    index_start_of_data = 4149; % MAYBE +1???
-    number_of_data_bits = 4236;
-    last_index = mod(index_start_of_data + number_of_data_bits, packet_length);
-
-    data_with_no_CB = [data(index_start_of_data : end) data(1 : last_index - 1)];
+    data_with_no_CB = [data(index_start_of_data : index_last_of_data) data(1 : index_start_of_data - 1)];
 end
 
 % Author - Omer Karp
@@ -206,8 +178,40 @@ function data_no_ECC = remove_error_correction_code_bits(data)
     S = undo_rectangular_interleaver(S_interleaved);
     P1 = undo_rectangular_interleaver(P1_interleaved);
     P2 = undo_rectangular_interleaver(P2_interleaved);
+    temp = S;
+    % S(1:100:end) = ~S(1:100:end);
+    
+    number_of_iterations = 1;
+    for iteration_index = 1 : number_of_iterations
+        % for each iteration, we interleave S and P1, then use viterby on
+        % the product, map it using pi_interleaver and do the same with P2,
+        % then do reverse pi and this will be the next S that we can use
+        % for the next iteration, while using HARD viterbi, we only do 1
+        % itration, when it is a SOFT viterbi, each iteration will improve
+        % on the last one, therefor we do ~8 of them.
+
+        S_P1_interleaved = do_interleaver(S, P1);
+        S_improved = viterbi_using_matlab_functions(S_P1_interleaved);
+
+        S_improved_pi = apply_pi_interleaver(S_improved);
+        S_improved_pi_P2_interleaved = do_interleaver(S_improved_pi, P2);
+        S_improved_twice_pi = viterbi_using_matlab_functions(S_improved_pi_P2_interleaved);
+        S = undo_pi_interleaver(S_improved_twice_pi); % new S for the next iteration
+    end
     
     data_no_ECC = S;
+end
+
+% Author - Omer Karp
+% Section 3.4 (Helper)
+function interleaved_vecs = do_interleaver(vec1, vec2)    
+    % Stack them vertically: [vec1 ; bvec2] and this gives a 2xN matrix
+    % then "linearize" by (:) reads down columns, then across rows
+    
+    vec1 = vec1(:).';
+    vec2 = vec2(:).';
+    vecs_mat = [vec1 ; vec2];
+    interleaved_vecs = vecs_mat(:).';
 end
 
 % Author - Omer Karp
@@ -220,8 +224,9 @@ end
 % Author - Omer Karp
 % Section 3.4
 function u = undo_pi_interleaver(u_tag)
-    % TODO
-    u = 1;
+    pi_mapping = apply_pi_interleaver(1:1408);
+    [~, reverse_mapping] = sort(pi_mapping);
+    u = u_tag(reverse_mapping);
 end
 
 % Author - Omer Karp
@@ -309,33 +314,32 @@ end
 function decoded_data = viterbi_using_matlab_functions(data)
     % Constraint length = 4 (Memory 3 + 1)
     constraintLength = 4;
-    
-    % Feedback polynomial: 1 + D^2 + D^3 (Binary: 1011 = Octal 13)
+
     feedbackPoly = 13;
-    
-    % Feedforward generator polynomial 1: 1 (Systematic)
-    gen1 = 1;
-    
-    % Feedforward generator polynomial 2: 1 + D + D^2 + D^3 (Binary: 1111 = Octal 17)
-    gen2 = 17;
+    gen1 = 13;
+    gen2 = 15;
+
+    % Traceback depth (tblen) is typically 5*constraintLength
+    tblen = 10 * constraintLength; 
     
     % Generate Trellis Structure
     trellis = poly2trellis(constraintLength, [gen1 gen2], feedbackPoly);
     
-    decoded_data = vitdec(code, trellis, 34, 'trunc', 'hard');
+    decoded_data = vitdec(data, trellis, tblen, 'trunc', 'hard');
 end
 
 % Author - Omer Karp
 % Date - (23/4/2026)
 % Section 3.5
-function [crcBits, is_data_corrupted] = check_CRC(data, poly, initial_state)    
+function [crcBits, is_data_corrupted] = check_CRC(data, poly, initial_state, direct_method)    
     arguments
         data
         poly
         initial_state = 0 % default (0 when not used) state
+        direct_method logical = false
     end
 
-    config = crcConfig(Polynomial=poly, InitialConditions=initial_state);
+    config = crcConfig(Polynomial=poly, InitialConditions=initial_state, DirectMethod=direct_method);
     [crcBits, is_data_corrupted] = crcDetect(data.', config);
 end
 
@@ -377,21 +381,18 @@ function packet_obj = get_data_from_raw_packet(data)
 
     % Do the CRC check
     % The polynomial & Initial State are:
-    CRC16_poly = 'z^16 + z^11 + z^4 + 1'; % 0x8810 
-    % CRC16_start = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0]; % 0x496C
-
-    % poly = [1 0 0 0 0 1 0 0 0 0 0 0 1 0 0 0 1];
+    % CRC16_poly = 'z^16 + z^11 + z^4 + 1';
+    CRC16_poly = [1 0 0 0 1 0 0 0 0 0 0 1 0 0 0 0 1];
     CRC16_initial_state = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0];
 
-    % crc_bits = check_CRC(packet_data, CRC16_poly, CRC16_start);
-    bits_mat = reshape(data, 8, []).';
-    switched_bits_order_mat = flipud(bits_mat).';
+    bits_mat = reshape(packet_data, 8, []).';
+    switched_bits_order_mat = fliplr(bits_mat).';
     bits = reshape(switched_bits_order_mat, 1, []);
+    
+    is_direct_method = true;
+    [~, is_data_corrupted] = check_CRC(bits, CRC16_poly, CRC16_initial_state, is_direct_method);
 
-    crc_bits = check_CRC(bits, CRC16_poly, CRC16_initial_state);
-
-    % packet_obj.is_CRC_valid = (binaryVectorToHex(crc_bits) == packet_obj.CRC16);
-    packet_obj.is_CRC_valid = true;
+    packet_obj.is_CRC_valid = ~is_data_corrupted;
 end
 
 % Author - Omer Karp
@@ -479,7 +480,6 @@ end
 
 % Author - Omer Karp
 % Description - Show the path on 2D and 3D, plus reply it as an anomation.
-% Credit - https://www.mathworks.com/help/map/visualize-uav-flight-path-on-synchronized-maps.html
 function reply_path(lat, lon, alt)
     mean_Latitude = mean(lat);
     mean_Longitude = mean(lon);

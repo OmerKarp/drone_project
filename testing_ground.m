@@ -23,3 +23,88 @@ if isequal(data, decodedData)
     disp('Decoding successful');
 end
 
+%% known viterbi
+clc
+
+% [1 + D + D^2 , 1 + D^2] -> 111, 101 -> 7, 5
+u = [1 1 0 0 1 0];
+v = [1 1 0 1 0 1 1 1 1 1 1 0 1 1 0 0];
+
+trellis = poly2trellis(3, [7 5]);
+nu = 2;
+
+% Create Encoder Object
+hEnc = comm.ConvolutionalEncoder( ...
+    'TrellisStructure', trellis, ...
+    'TerminationMethod', 'Terminated');
+
+% Input Data
+% msg = [1 0 1 1 0]';
+
+% Encode (Automatically appends zeros)
+codedout = hEnc(u.').';
+disp(codedout == v)
+
+decoded = vitdec(codedout, trellis, 1, "term", "hard")
+
+disp(decoded(1 : end - nu) == u)
+
+reset(hEnc); % Reset for next block
+
+%% next viterbi
+clc
+
+% [1, 1 + D + D^2 + D^3] ⇒ [0001 , 1111] (base 2) ⇒ [1, 15] (base 10) - (1101)
+% 1 + D^2 + D^3 ⇒ 1101 (base 2) ⇒ 13 (base 10)                        - (1011)
+
+u = ones(1, 50);
+nu = 3;
+
+trellis = poly2trellis(4, [13 15], 13);
+
+% Create Encoder Object
+hEnc = comm.ConvolutionalEncoder( ...
+    'TrellisStructure', trellis, ...
+    'TerminationMethod', 'Terminated');
+
+% Input Data
+% msg = [1 0 1 1 0]';
+
+% Encode (Automatically appends zeros)
+codedout = hEnc(u.').'
+
+decoded = vitdec(codedout, trellis, 34, "trunc", "hard")
+
+disp(decoded(1 : end - nu) == u)
+
+reset(hEnc); % Reset for next block
+
+
+%% 1. Input Data
+clc
+data = zeros(1, 20);
+data(1:2:end) = 1;
+
+function decoded = viterbi_using_matlab(encoded)
+    % 2. Define Trellis Structure
+    % Constraint Length = 4 (highest power + 1)
+    % Generators (octal): 
+    % G1 = 1 + d^2 + d^3 -> [1 0 1 1] -> 13 (Octal)
+    % G2 = 1 + d + d^3 -> [1 1 0 1] -> 15 (Octal)
+    constraintLength = 4;
+    generators = [13 15]; 
+    trellis = poly2trellis(constraintLength, generators, 13);
+    
+    % 3. Convolutional Encoding
+    encodedData = convenc(data, trellis);
+    disp('Encoded Data:');
+    disp(encodedData);
+    
+    % 4. Viterbi Decoding
+    % Traceback depth (tblen) is typically 5*constraintLength
+    tblen = 5 * constraintLength; 
+    decoded = vitdec(encodedData, trellis, tblen, 'trunc', 'hard');
+    
+    disp('Decoded Data:');
+    disp(decoded);
+end    

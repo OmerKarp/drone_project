@@ -20,7 +20,7 @@ positions = zeros(3, length(theFiles));
 for k = 1 : length(theFiles)
     baseFileName = theFiles(k).name;
     fullFileName = fullfile(theFiles(k).folder, baseFileName);
-    fprintf('Now reading %s\n', fullFileName);
+    % fprintf('Now reading %s\n', fullFileName);
     
     % 4. Use an appropriate function to read the data
     raw_hex = fileread(fullFileName);
@@ -28,13 +28,12 @@ for k = 1 : length(theFiles)
     [packet_obj, is_data_corrupted] = bits_layer(raw_hex);
     
     if is_data_corrupted
-        disp("(+) Packet is corrupted!")
+        disp("(-) Packet is corrupted!")
+        positions(:, k) = positions(:, k-1); % Stay at the last known position
+    else
+        positions(:, k) = [packet_obj.AppLatitude packet_obj.AppLongitude packet_obj.Altitude];
     end
-
-    positions(:, k) = [packet_obj.AppLatitude packet_obj.AppLongitude packet_obj.Altitude];
 end
-
-% disp(positions)
 
 % 1. Sample Data [Lon, Lat, Alt(meters)]
 lat = positions(1, :);
@@ -53,6 +52,7 @@ close all
 % Our job is to get from raw_hex ⇒ processed_bits ⇒ data
 
 raw_hex = 'D2C3DE7944A59EBC9B162D46F997D696676D5DB62EE36220D2E1D99DA7BE9F9CD8CC716B5AB2F0428634B86246DB3F2D5B48E622C65E8E1B8988488769F6780827A382E3A702508CD1149D49AA6233677F430D03668B6184FEB10B688305F63F882F500AF60D020618BD42CBDA2F69581552E24FD3D3ADB41D085102586301C79BD9E8AC76633F1ECBC074E4C175969C43B33F92E58F6FDDA1B6870C3BE04590DF825F71D2E5F424AEB1E5745A565B17330F496F4C83E7FBCBD19DAEFC7B37E002B2B9751458F567B164F316E4F2C9FAE7786E9FBD06A20ECEDDC9372048D0C8598150828ED071D91DA90CDB4CC3C04BFBC52BE843C24651C71C10D63683885658485B3376C374FA471B94EC5D924C1D9337C1EA0F8BCC83814E5C184C98C9F12F14E6D18C0535F2550B88EC6B91EA8668C1FE720687402F7A340AE3F5F3C04F6735712191A9349ED3A0BA02916FBDA6C340DA0AA91EF747A859DAB180E5BF8000C2415375E85F3C2264546021CF5BEBFA7B78D480A55E8FC3A9F50213302FAE17708CA2127A23A19C87C66B43A972583C6F05DEFDF070E072EAF5DD867C83468B0E9FD6C4472D05B1DC8248E24CE4548E81F03A7ED416916F516B3FA3A6311CE2F7080B40FE2CE0DB590FCAB21C38FE2E1F6FA16DE33E9D9B83F1F95F2B8C7FFEB4B1C3A67C1D4F6DFCDB2516B8DC99C14D5F4AA4C1264CB61068087676FCCA5224D4D16960F8C68733C3DD160BEDF4EDECB1D2B08D286538C00D6CC6B79E631F3B886942DFE29D6328D0C6A8673F2E534B5987B4E4B8E4ADAEA9EE3F0A2356894273DB1D18CE67D68712F7789D04E0BD27C386DB7AF413A8209EF7CBA9B776990A0DB50616323DDC70C14DB46AB1D922E4325115EF11DE17FB55765550BB67174BC182EF5DC41E846991B3C4F6CBCCE8B81B81C91734DC48223E8587ABD8F7EEA02DD344989F32B95E901B86E14254A9033C7E07DEA7904DEE94A1CF72089836BA9FA7B416740C61C1B0DDC90A6B6C1FBF2CC21CA5FA1CB9BDADC1CCB2386D6F3030112E74D0E8BB32098AD30A5A21C4EB89BF35201279A7411869F2253FBC9A2DE60576FE4D3C1F39CA208890D7CE98DEE35939E6C23C7AE2A07FEC2BB4AFC25E68169C6B60C45A38B3F634FA120C99CFC853F76546CDA19A17464027A84E4F2CE220CB1AD7163DD6205F906EB0AC818EC3892F8BD832A058EB45B7B2B5424AB6C6174E85EADCF49858FF37AC700FCEC6C417E7713A47BDB757C687FF3C21C91E52B9';
+% raw_hex = '02341A986E800F06A712F06612FE0069FDE232BBF4BBD6CCC6EE25084D47B42033B4DE367B25351DEEEC477A2C45C85C5C4FAE043CA0F00947F00C61007B287B1B25F058940675DD38A1F4C7B2389B7948736D7777A1FBDDA45C3965C39A0306CB708A0A120E1FC5DDDC28B21E089807E67F20C8F879B529621FCA8154FA50F09C9CA1AB8180103121C7AC2E6A20F1F5602AB95749749A47250383BB4B58FC4D6EDB8AB647BD5570A91675E698F4267CC6F1F8EBA3E4F34E876AEA76AD34A32A80A9A02C049F1AE0DE74D38ECBE77F6B832A793594628C2974241E0A07C58E5712584279B00E5A1799D29C90C642D39578ACA1DD39DB934F0DD0FAEF5DFE3A6B044F699E8F2BB224B0EE336DB1F3E47C2BD27405FA0C2EEC487BE8B198EC014CC47FF09CCFAB63CE36A0E865AD3A0D32BF6A103F9885313A921FC5C1828A8A0C103A9E34D803223C9038C6309422CA62726A597EB183957F2672B050497E18840E19B45E7FCD70F079625719F478A550971AAC9217BC4A00596781053ACC8ECC9AB5536266F37E2ABE8027F55CF9A4A410B8ED6096C636B6AB9CFBE0A0D27579C6B83EE3CC9A96F8A4ECD9F585BAD06552CB7F0EB5785E5CED7E1DCA36AB6ED09EDB19869A59B7E2009214D62B9D240D2509F886EC93C5C49FE5E47D91C074720BC762BA68830154E3006192906F26BFD20E3621B5BB472B56852025BAEE84FB4463756C36D8277464A4181E5F3CF262CA6EECF79034E8F5A025AC86BBD84321E846960537C86B873820DA22A815CCD3CE5C1B7E5E68B31D6EFC6065C87E06E8A8F52A2A08FF16EA138E03B9EC4A2A4708FF8F080207F7975329300AB84B1AA533BF40EA6AC5CE5AB545E01D098A6969050AF7FEDD06C27CB52AA61EDE8BDFE22BD23CB5433084833AA4E5826A8B985940469D9015136A95220009A0F85F9C60DD6082852376CA0A0C1C6CC42AFEC8AEB2204D43EAB9DB927D1BD290D13FE20630948CB42DB8750249250E70CCB5B61B6F87ABBD301E166DF36D93978251B312879364C9D81A67A0B86C69A007313224251CE192C0A78ACCAD87A222C3D62CE4B3E92683B68CDF584A11F5C7A2FC5E5E5FEE9521969C593012842A24A6571550B6AD921B364117585791013C9212ECFF425DBF45867026781212E5D94320CDB29364448DCC8D9B49D990987CCC7F86569981A65319C321986719D308EC9E619A36E34EB471C58EB97CF9B0F8E1EDA1E491F8605B1F959D78DD91D9138086A1F8951A01C6';
 processed_bits = '5810024D00071D334E33424A393430313230344A44000000000000000000003E00000000000700FAFF2BDC371CC3509C010000CB225500CCCE5C0000000000000000003A133139383835373531313131373735323332303000F438';
 data = ['{"payload_length":88,"unknown1":16,"version":2,"sequence_number":77,"states_info":[false,false,false,false,false,true,true,true,false,false,false,true,true,true,false,true],' ...
     '     "serial":"3N3BJ9401204JD","long":0,"lat":0,"altitude":62,"height":0,"v_north":0,"v_east":7,"v_up":-6,"unknown2":-9173,' ...
@@ -62,30 +62,7 @@ data = ['{"payload_length":88,"unknown1":16,"version":2,"sequence_number":77,"st
 [packet_obj, is_data_corrupted] = bits_layer(raw_hex);
 
 disp(packet_obj)
-
-%% TEST
-
-% 1. Define Trellis Structure
-% This specific G(D) needs careful translation to poly2trellis.
-% Assuming standard conversion to equivalent feedforward polynomials
-% for a 4-state or 8-state system based on the feedback division.
-constraintLength = 4;
-
-% 1 + D + D^2 + D^3 ⇒ 1111 (base 2) ⇒ 15
-% 1 + D^2 + D^3 ⇒ 1101 (base 2) ⇒ 13
-generators = [13 15];
-trellis = poly2trellis(constraintLength, generators, 13);
-% 2. Generate/Encode Data
-% data = randi([0 1], 100, 1);
-data = [0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1];
-encodedData = convenc(data, trellis);
-% 3. Viterbi Decoding
-tbdepth = 34; % Traceback depth
-decodedData = vitdec(encodedData, trellis, tbdepth, 'trunc', 'hard');
-% Verify
-if isequal(data, decodedData)
-    disp('Decoding successful');
-end
+disp(["(+) Is the data corrupted? ", logical(is_data_corrupted)])
 
 %% <================== Bits Layer ==================>
 
@@ -115,8 +92,6 @@ function [packet_obj, is_data_corrupted] = bits_layer(packet_in_hex)
     [data_no_CRC24, is_data_corrupted] = check_CRC(data_no_ECC, CRC24_poly);
     if is_data_corrupted
         disp('(-) CRC24 Check Failed, Data is corrupted.');
-        packet_obj = -1;
-        return
     end
 
     % Section 3.6 - Packet Structure & Data Validation
@@ -146,25 +121,13 @@ end
 % Author - Omer Karp
 % Section 3.3
 function data_with_no_CB = remove_CB_from_data(data)
-    % we need to go from 7,200 bits down to 4,236
-    % A packet is the demodulated data, containing 7,200 bits -> 900 bytes, so length(packet) = 7,200.
-    % Out of that, only 91 bytes (728 bits) are data that we will get at the end.
-    packet_length = length(data);
+    % the data starts at index 4148 and ends at index 4149, looping back to
+    % the start and ending back at the starting index.
 
-    % the data starts at index 4148 and its length is 4236, looping back to
-    % the start after reaching the end of the data, until index = mod(4148 + 4236, 7200) = 1184.
-    %
-    %                  ______________(cyclical buffer)__________
-    % example:         ↑ ↑ ↑ ↑ ↑ ↑↑↑                     |      \
-    % unmasked_data = [0 1 2 3 4 ... 4148 4149 ... end]  |       \
-    %                                  ↓   ↓   ↓↓↓  ↓   /|\       \
-    % no_CB_data    =               [4148 4149 ... end 0 1 2 ... 1183]
+    index_start_of_data = 4149;
+    index_last_of_data = 4236;
 
-    index_start_of_data = 4149; % MAYBE +1???
-    number_of_data_bits = 4236;
-    last_index = mod(index_start_of_data + number_of_data_bits, packet_length);
-
-    data_with_no_CB = [data(index_start_of_data : end) data(1 : last_index - 1)];
+    data_with_no_CB = [data(index_start_of_data : index_last_of_data) data(1 : index_start_of_data - 1)];
 end
 
 % Author - Omer Karp
@@ -212,7 +175,37 @@ function data_no_ECC = remove_error_correction_code_bits(data)
     P1 = undo_rectangular_interleaver(P1_interleaved);
     P2 = undo_rectangular_interleaver(P2_interleaved);
     
+    number_of_iterations = 1;
+    for iteration_index = 1 : number_of_iterations
+        % for each iteration, we interleave S and P1, then use viterby on
+        % the product, map it using pi_interleaver and do the same with P2,
+        % then do reverse pi and this will be the next S that we can use
+        % for the next iteration, while using HARD viterbi, we only do 1
+        % itration, when it is a SOFT viterbi, each iteration will improve
+        % on the last one, therefor we do ~8 of them.
+        
+        S_P1_interleaved = do_interleaver(S, P1);
+        S_improved = viterbi_using_matlab_functions(S_P1_interleaved);
+
+        S_improved_pi = apply_pi_interleaver(S_improved);
+        S_improved_pi_P2_interleaved = do_interleaver(S_improved_pi, P2);
+        S_improved_twice_pi = viterbi_using_matlab_functions(S_improved_pi_P2_interleaved);
+        S = undo_pi_interleaver(S_improved_twice_pi); % new S for the next iteration
+    end
+    
     data_no_ECC = S;
+end
+
+% Author - Omer Karp
+% Section 3.4 (Helper)
+function interleaved_vecs = do_interleaver(vec1, vec2)    
+    % Stack them vertically: [vec1 ; bvec2] and this gives a 2xN matrix
+    % then "linearize" by (:) reads down columns, then across rows
+    
+    vec1 = vec1(:).';
+    vec2 = vec2(:).';
+    vecs_mat = [vec1 ; vec2];
+    interleaved_vecs = vecs_mat(:).';
 end
 
 % Author - Omer Karp
@@ -225,109 +218,28 @@ end
 % Author - Omer Karp
 % Section 3.4
 function u = undo_pi_interleaver(u_tag)
-    % TODO
-    u = 1;
+    pi_mapping = apply_pi_interleaver(1:1408);
+    [~, reverse_mapping] = sort(pi_mapping);
+    u = u_tag(reverse_mapping);
 end
 
 % Author - Omer Karp
 % Section 3.4
-% Desc: implemented the Viterbi algorithm just like we did in class.
-function y = ConvDecode(data)
-    m = 3;
-    number_of_states = 2^m;
-
-    number_input_bits = 1;
-    number_of_possible_inputs = 2^number_input_bits;
-    number_output_bits = 2;
-
-    N = length(data)/number_output_bits;
-
-    next_state_table = [0 1;
-                        3 2;
-                        4 5;
-                        7 6;
-                        0 1;
-                        3 2;
-                        4 5;
-                        7 6];
-
-    output = zeros(number_of_states, number_of_possible_inputs, number_output_bits);
-    for state = 0:number_of_states-1
-        m1 = bitget(state, 1);
-        m2 = bitget(state, 2);
-        m3 = bitget(state, 3);
-
-        for input = 0:number_of_possible_inputs-1
-            out1 = mod(input, 2);                  % 1
-            out2 = mod(input + m1 + m2 + m3, 2);   % 1 + D + D^2 + D^3
-            output(state+1,input+1,:) = [out1 out2];
-        end
-    end
-    
-    edges_distances = inf(number_of_states, N+1);
-    edges_distances(1,1) = 0;
-
-    best_previeus_state = zeros(number_of_states, N);
-    input_store = zeros(number_of_states, N);
-    
-    m1 = 0;
-    m2 = 0;
-    m3 = 0;
-    for k = 1:N
-        bits_to_decode = data(2*k-1 : 2*k);
-
-        for state = 0:number_of_states-1
-            for input = 0:number_of_possible_inputs-1
-                previues_state = state;
-                next_state = next_state_table(previues_state+1, mod(input + m2 + m3, 2) + 1);
-
-                out = squeeze(output(previues_state+1, input+1, :))';
-
-                branch_metric = sum(bits_to_decode ~= out);
-
-                metric = edges_distances(previues_state+1, k) + branch_metric;
-
-                if metric < edges_distances(next_state+1, k+1)
-                    edges_distances(next_state+1, k+1) = metric;
-                    best_previeus_state(next_state+1, k) = previues_state;
-                    input_store(next_state+1, k) = input;
-                end
-                
-                m3 = m2;
-                m2 = m1;
-                m1 = input;
-            end
-        end
-    end
-
-    [~, state] = min(edges_distances(:, N+1));
-    state = state-1;
-    y = zeros(1, N);
-    for k = N:-1:1
-        y(k) = input_store(state+1,k);
-        state = best_previeus_state(state+1,k);
-    end
-
-    y = y(1:end-m);
-end
-
 function decoded_data = viterbi_using_matlab_functions(data)
     % Constraint length = 4 (Memory 3 + 1)
     constraintLength = 4;
-    
-    % Feedback polynomial: 1 + D^2 + D^3 (Binary: 1011 = Octal 13)
+
     feedbackPoly = 13;
-    
-    % Feedforward generator polynomial 1: 1 (Systematic)
-    gen1 = 1;
-    
-    % Feedforward generator polynomial 2: 1 + D + D^2 + D^3 (Binary: 1111 = Octal 17)
-    gen2 = 17;
+    gen1 = 13;
+    gen2 = 15;
+
+    % Traceback depth (tblen) is typically 5*constraintLength
+    tblen = 10 * constraintLength; 
     
     % Generate Trellis Structure
     trellis = poly2trellis(constraintLength, [gen1 gen2], feedbackPoly);
     
-    decoded_data = vitdec(code, trellis, 34, 'trunc', 'hard');
+    decoded_data = vitdec(data, trellis, tblen, 'trunc', 'hard');
 end
 
 % Author - Omer Karp
@@ -482,7 +394,6 @@ end
 
 % Author - Omer Karp
 % Description - Show the path on 2D and 3D, plus reply it as an anomation.
-% Credit - https://www.mathworks.com/help/map/visualize-uav-flight-path-on-synchronized-maps.html
 function reply_path(lat, lon, alt)
     mean_Latitude = mean(lat);
     mean_Longitude = mean(lon);

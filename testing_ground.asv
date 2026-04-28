@@ -1,33 +1,106 @@
 clear
 close all
 clc
-%%
-seq1 = zadoffChuSeq(600,601);
-seq1_1 = seq1;
-seq2 = zadoffChuSeq(147,601);
 
-seq1(301) = 0;
-seq2(301) = 0;
+%% viterbi
 
-seq1 = [zeros(212,1);seq1;zeros(1024-813,1)];
-seq2 = [zeros(212,1);seq2;zeros(1024-813,1)];
 
-seq1 = (ifft(ifftshift(seq1)));
-seq2 = (ifft(ifftshift(seq2)));
+constraintLength = 4;
+data = [0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1];
 
-seq1 = [seq1(end-72+1:end) ; seq1];
-seq2 = [seq2(end-72+1:end) ; seq2];
+% 1 + D + D^2 + D^3 ⇒ 1111 (base 2) ⇒ 15
+% 1 + D^2 + D^3 ⇒ 1101 (base 2) ⇒ 13
+generators = [13 15];
+trellis = poly2trellis(constraintLength, generators, 13);
 
-fs = 10e6; %smaller because the ends are zeros already - more efficient.
-fs_spc_1 = 1024.*15e3;
+% 2. Generate/Encode Data
+encodedData = convenc(data, trellis);
+% 3. Viterbi Decoding
+tbdepth = 34; % Traceback depth
+decodedData = vitdec(encodedData, trellis, tbdepth, 'trunc', 'hard');
+% Verify
+if isequal(data, decodedData)
+    disp('Decoding successful');
+end
 
-seq1 = resample(seq1,fs,fs_spc_1);
-seq2 = resample(seq2,fs,fs_spc_1);
+%% known viterbi
+clc
 
-M = 64;
-g = hann(M,"periodic");
-L = 0.5*M;
-Ndft = 1024;
+% [1 + D + D^2 , 1 + D^2] -> 111, 101 -> 7, 5
+u = [1 1 0 0 1 0];
+v = [1 1 0 1 0 1 1 1 1 1 1 0 1 1 0 0];
 
-spectrogram(seq1,g,L,Ndft,fs,"centered","yaxis");
+trellis = poly2trellis(3, [7 5]);
+nu = 2;
 
+% Create Encoder Object
+hEnc = comm.ConvolutionalEncoder( ...
+    'TrellisStructure', trellis, ...
+    'TerminationMethod', 'Terminated');
+
+% Input Data
+% msg = [1 0 1 1 0]';
+
+% Encode (Automatically appends zeros)
+codedout = hEnc(u.').';
+disp(codedout == v)
+
+decoded = vitdec(codedout, trellis, 1, "term", "hard")
+
+disp(decoded(1 : end - nu) == u)
+
+reset(hEnc); % Reset for next block
+
+%% next viterbi
+clc
+
+% [1, 1 + D + D^2 + D^3] ⇒ [0001 , 1111] (base 2) ⇒ [1, 15] (base 10) - (1101)
+% 1 + D^2 + D^3 ⇒ 1101 (base 2) ⇒ 13 (base 10)                        - (1011)
+
+u = ones(1, 50);
+nu = 3;
+
+trellis = poly2trellis(4, [13 15], 13);
+
+% Create Encoder Object
+hEnc = comm.ConvolutionalEncoder( ...
+    'TrellisStructure', trellis, ...
+    'TerminationMethod', 'Terminated');
+
+% Input Data
+% msg = [1 0 1 1 0]';
+
+% Encode (Automatically appends zeros)
+codedout = hEnc(u.').'
+
+decoded = vitdec(codedout, trellis, 34, "trunc", "hard")
+
+disp(decoded(1 : end - nu) == u)
+
+reset(hEnc); % Reset for next block
+
+
+%% 1. Input Data
+data = [;
+
+% 2. Define Trellis Structure
+% Constraint Length = 4 (highest power + 1)
+% Generators (octal): 
+% G1 = 1 + d^2 + d^3 -> [1 0 1 1] -> 13 (Octal)
+% G2 = 1 + d + d^3 -> [1 1 0 1] -> 15 (Octal)
+constraintLength = 4;
+generators = [13 15]; 
+trellis = poly2trellis(constraintLength, generators);
+
+% 3. Convolutional Encoding
+encodedData = convenc(data, trellis);
+disp('Encoded Data:');
+disp(encodedData);
+
+% 4. Viterbi Decoding
+% Traceback depth (tblen) is typically 5*constraintLength
+tblen = 5 * constraintLength; 
+decodedData = vitdec(encodedData, trellis, tblen, 'trunc', 'hard');
+
+disp('Decoded Data:');
+disp(decodedData);
