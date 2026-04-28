@@ -25,29 +25,35 @@ known_synced_signal = (data(1:2:end) + 1j * data(2:2:end)) ;
 
 %% <================== Phisical Layer ==================>
 
-a = demod_synced_samples(known_synced_signal)
+% a = demod_synced_samples(known_synced_signal)
 
-% M = 4;
-% data = randi([0 M-1],1000,1);
-% moded_data = pskmod(data, 4, pi/4, 'gray');
-% scatterplot(moded_data)
-% ofdmmod(moded_data, 1024)
+seq1 = zadoffChuSeq(600,601);
+
+corr = do_fast_corr(seq1, seq1)
+normal_corr = abs(conv(seq1, flip(conj(seq1)), 'same'))
+
+figure;
+plot(abs(corr))
+figure;
+plot(normal_corr)
+
+
 
 %% <================== Phisical Layer ==================>
 
 function raw_hex = physical_layer_demod(raw_samples)
-    % Handle the raw samples
-    [zc_symbol_4, zc_symbol_6] = get_zc_symbols()
+    % Handle the raw samples and turn to synced samples
+    [zc_symbol_4, zc_symbol_6] = create_zc_symbols();
     
-    % Take the synced samples and return the hex for the data_layer
+    % Take the synced_samples -> raw_hex for the data_layer
     raw_hex = demod_synced_samples(synced_samples);
 end
 
-function [zc_symbol_4, zc_symbol_6] = get_zc_symbols()
+function [zc_symbol_4, zc_symbol_6] = create_zc_symbols()
     %create raw zc sequences.
     seq1 = zadoffChuSeq(600,601);
     seq2 = zadoffChuSeq(147,601);
-    
+
     % pad them with zeros at the start and end
     seq1 = [zeros(212,1) ; seq1 ; zeros(1024-813,1)];
     seq2 = [zeros(212,1) ; seq2 ; zeros(1024-813,1)];
@@ -60,13 +66,36 @@ function [zc_symbol_4, zc_symbol_6] = get_zc_symbols()
     zc_symbol_6 = [seq2(end-72+1:end) ; seq2];
 end
 
+function [] = corr_with_zc_symbol(sig, zc_symbol)
+    
+end
+
+function corr = do_fast_corr(sig1, sig2)
+    % make that sig1 is the longer one, else switch
+    if length(sig2) > length(sig1)
+        temp = sig1;
+        sig1 = sig2;
+        sig2 = temp;
+    end
+
+    % padding with 0's so they match lengths
+    sig2 = [conj(flip(sig2)) ; zeros(length(sig1) - length(sig2), 1)];
+
+    ffted_sig1 = fft(sig1);
+    ffted_sig2 = fft(sig2);
+
+    corr = ifft(ffted_sig1 .* ffted_sig2);
+end
+
 % synced_samples -> raw_hex, using ofdm and qpsk demodulations.
+% TESTED
 function raw_hex = demod_synced_samples(synced_samples)
     demoded_ofdm = ofdm_demod(synced_samples);
     raw_bit_vec = qpskdemod(demoded_ofdm);
     raw_hex = binaryVectorToHex(raw_bit_vec);
 end
 
+% TESTED
 function demod = ofdm_demod(sig)
     cp_len = 72;
     cp_len_extended = 80;
@@ -92,15 +121,82 @@ function demod = ofdm_demod(sig)
     demod = demod(:);
 end
 
+% TESTED
 function raw_bit_vec = qpskdemod(sig)
     symbols = zeros(1, length(sig));
 
-    symbols(real(sig) > 0 & imag(sig) > 0) = 0;
-    symbols(real(sig) < 0 & imag(sig) > 0) = 1;
-    symbols(real(sig) < 0 & imag(sig) < 0) = 2;
-    symbols(real(sig) > 0 & imag(sig) < 0) = 3;
+%   We demod the data with this demod constalation:
+%
+%                    |
+%         Ⅱ - 01     |   Ⅰ - 00
+%                    |
+%        ————————————+————————————
+%                    |
+%         Ⅲ - 11    |   Ⅳ - 10
+%                    |
+
+    symbols(real(sig) > 0 & imag(sig) > 0) = 0; % Ⅰ - 00
+    symbols(real(sig) < 0 & imag(sig) > 0) = 2; % Ⅱ - 01
+    symbols(real(sig) < 0 & imag(sig) < 0) = 3; % Ⅲ - 11 
+    symbols(real(sig) > 0 & imag(sig) < 0) = 1; % Ⅳ - 10
 
     raw_bit_mat_columns = de2bi(symbols, 2, 'left-msb');
     raw_bit_mat_rows = raw_bit_mat_columns.';
     raw_bit_vec = reshape(raw_bit_mat_rows, 1, []);
+end
+
+%% <================== Helper Functions - Plotting ==================>
+
+function plot_IQ(z, show_radius, plot_title)
+    arguments
+        z
+        show_radius (1,1) logical = false   % optinal param to see the radiuses
+        plot_title string = ""              % optinal suffix name to the graph
+    end
+
+    % getting the radiuses
+    radiuses = abs(z);
+    radiuses = round(radiuses, 2);
+    radiuses = unique(radiuses);
+
+    figure;
+    hold on;
+    xline(0, 'k-');
+    yline(0, 'k-');
+
+    plot(real(z), imag(z), 'o', 'LineWidth', 10)
+    if show_radius
+        theta = linspace(0, 2*pi, 100);
+
+        for raduis = radiuses
+            z = raduis * exp(1j * theta);
+            plot(real(z), imag(z), 'Color', 'r', 'LineStyle', '--');
+        end
+    end
+    
+    title('IQ Graph ' + plot_title);
+    xlabel('I (real)');
+    ylabel('Q (Imaginary)');
+    grid on;
+end
+
+function plot_two_sided_fft(y, fs, plot_title)
+    arguments
+        y 
+        fs 
+        plot_title string = "" % optinal suffix for the graph
+    end
+
+    N = length(y);
+    ffted_y = fft(y);
+    P2 = abs(ffted_y/N); % 2 sided ffted data
+    P2_shifted = fftshift(P2);
+    freq_axis = fs * (-N/2 : N/2 - 1) / N;
+
+    figure;
+    plot(freq_axis, P2_shifted);
+    title("Two Sided FFT " + plot_title);
+    xlabel("Frequency (Hz)");
+    ylabel("Amplitude");
+    grid on;
 end
