@@ -1,0 +1,77 @@
+clear
+close all
+clc
+
+%% open signal
+raw_sample_base = 'C:\Users\eladm\Desktop\drone sigint\drone_project\raw_samples-20260423T111818Z-3-001\raw_samples\';
+synced_sample_base = 'C:\Users\eladm\Desktop\drone sigint\drone_project\synced_samples\';
+signal_path = [raw_sample_base,'raw_samples_12_Feb_2026_09_30_39_442_fs_10MHz.32fc'];
+signal_ref_path = [synced_sample_base,'synced_samples_12_Feb_2026_09_30_39_442_fs_15.36MHz.32fc'];
+
+%import raw signal
+fid = fopen(signal_path, 'rb'); % 'rb' for read-binary
+data = fread(fid, [inf], 'float32');
+fclose(fid);
+signal = (data(1:2:end) + 1j * data(2:2:end)) ;
+
+%import synced signal
+fid = fopen(signal_ref_path, 'rb'); % 'rb' for read-binary
+data = fread(fid, [inf], 'float32');
+fclose(fid);
+signal_ref = (data(1:2:end) + 1j * data(2:2:end)) ;
+%% get to know the signal. plots
+fs = 10e6;
+ofdm_sym_len = 1024;
+SCS = 15e3; %sub carrier spacing
+cp_len = 72;
+cp_len_ends = 80;
+fs_spc_1 = ofdm_sym_len.*SCS;
+M = 32;
+g = hann(M);
+L = 0.5*M;
+Ndft = 1024;
+
+signal = resample(signal,fs_spc_1,fs);
+fs = fs_spc_1;%update fs
+signal = signal.*exp(1j*2*pi*1000*((0:length(signal)-1)./fs).');
+
+%create zc sequences.
+seq1 = zadoffChuSeq(600,601);
+seq2 = zadoffChuSeq(147,601);
+
+% seq1(301) = 0;
+% seq2(301) = 0;
+
+seq1 = [zeros(212,1);seq1;zeros(1024-813,1)];
+seq2 = [zeros(212,1);seq2;zeros(1024-813,1)];
+
+seq1 = (ifft(ifftshift(seq1)));
+seq2 = (ifft(ifftshift(seq2)));
+
+%seq1 = [seq1(end-72+1:end) ; seq1];
+seq2 = [seq2(end-72+1:end) ; seq2];
+
+% fs = 10e6; %smaller because the ends are zeros already - more efficient.
+% fs_spc_1 = 1024.*15e3;
+% 
+% zc_seq_sym_4 = resample(seq1,fs,fs_spc_1);
+% zc_seq_sym_6 = resample(seq2,fs,fs_spc_1);
+
+zc_seq_sym_4 = seq1;
+zc_seq_sym_6 = seq2;
+
+% Perform correlation between the zc symbol 4 (including its CP) and the
+% signal
+corr1 = ifft(fft((signal)).*fft([conj(flip((zc_seq_sym_4))); zeros(length(signal)-length(zc_seq_sym_4),1)]));
+figure; plot(abs(corr1)); %we get 2 peaks for cp, spaced 1024 samples from each other(T_ofdm_sym);
+[~, samp1] = max(abs(corr1));
+samp1 = samp1-length(zc_seq_sym_4)+1;
+zc_4_cand = signal(samp1:samp1+ofdm_sym_len-1) .* conj(zc_seq_sym_4);
+fft_zc_cand = fftshift(fft(zc_4_cand));
+figure;
+plot(abs(fft_zc_cand))
+freq_offset = 
+% sig2corr = [1;zeros(1023,1);1];
+% corr11 = ifft(fft(abs(corr1)).*fft([conj(flip((sig2corr))); zeros(length(corr1)-length(sig2corr),1)]));
+% figure; plot(abs(corr11));
+% [~,first_peak_samp] = max(abs(corr11));

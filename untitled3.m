@@ -34,6 +34,8 @@ Ndft = 1024;
 
 signal = resample(signal,fs_spc_1,fs);
 fs = fs_spc_1;%update fs
+signal = signal.*exp(1j*2*pi*1000*((0:length(signal)-1)./fs).');
+
 %create zc sequences.
 seq1 = zadoffChuSeq(600,601);
 seq2 = zadoffChuSeq(147,601);
@@ -63,29 +65,26 @@ zc_seq_sym_6 = seq2;
 zc_4_cp = seq1(end-72+1:end);
 zc_6_cp = seq2(end-72+1:end);
 
-corr1 = ifft(fft((signal)).*fft([conj(flip((zc_4_cp))); zeros(length(signal)-length(zc_4_cp),1)]));
+corr1 = ifft(fft((signal)).*fft([conj(flip((seq1))); zeros(length(signal)-length(seq1),1)]));
+
+figure; plot(abs(corr1)); 
+[~,zc_4_peak_samp] = max(abs(corr1));
+data_cp_samp = zc_4_peak_samp-length(seq1)-72+2;
+data_cp = signal(data_cp_samp:data_cp_samp+72-1);
+
+
+corr1 = ifft(fft((signal)).*fft([conj(flip((data_cp))); zeros(length(signal)-length(data_cp),1)]));
 figure; plot(abs(corr1)); %we get 2 peaks for cp, spaced 1024 samples from each other(T_ofdm_sym);
-sig2corr = [1;zeros(1023,1);1];%1024 samples overall
+sig2corr = [1;zeros(1023,1);1];
 corr11 = ifft(fft(abs(corr1)).*fft([conj(flip((sig2corr))); zeros(length(corr1)-length(sig2corr),1)]));
 figure; plot(abs(corr11));
 [~,first_peak_samp] = max(abs(corr11));
 first_peak_samp = first_peak_samp-1024;
 second_peak_samp= first_peak_samp+ofdm_sym_len;
-freq_offset_4 = angle(conj(corr1(first_peak_samp))*corr1(second_peak_samp))./(2*pi*ofdm_sym_len/fs);
-
-
-corr1 = ifft(fft((signal)).*fft([conj(flip((zc_6_cp))); zeros(length(signal)-length(zc_6_cp),1)]));
-figure; plot(abs(corr1)); %we get 2 peaks for cp, spaced 1024 samples from each other(T_ofdm_sym);
-sig2corr = [1;zeros(1022,1);1];
-corr11 = ifft(fft(abs(corr1)).*fft([conj(flip((sig2corr))); zeros(length(corr1)-length(sig2corr),1)]));
-figure; plot(abs(corr11));
-[~,first_peak_samp] = max(abs(corr11));
-first_peak_samp = first_peak_samp-1023;
-second_peak_samp= first_peak_samp+ofdm_sym_len;
-freq_offset_6 = angle(conj(corr1(first_peak_samp))*corr1(second_peak_samp))./(2*pi*ofdm_sym_len/fs);
+freq_offset_6 = angle(conj(corr1(first_peak_samp))*corr1(second_peak_samp))./(2*pi*(ofdm_sym_len-1)/fs);
 
 %freq_offset = 0.5*(freq_offset_6+freq_offset_4);
-freq_offset = freq_offset_4;
+freq_offset = freq_offset_6;
 
 t_val = ((0:length(signal)-1)./fs ).';
 freq_synced_signal = signal.*exp(-1j*2*pi*freq_offset*t_val);
@@ -94,6 +93,8 @@ signal2corr = [zc_seq_sym_4 ;zeros(ofdm_sym_len+cp_len,1); zc_seq_sym_6];
 
 corr_4_6 = ifft(fft(freq_synced_signal).*fft([conj(flip(signal2corr));zeros(length(freq_synced_signal)-length(signal2corr),1)]));
 [~,samp_offset_signal2corr] = max(abs(corr_4_6));
+figure; plot(abs(corr_4_6));
+title("corr_4_6")
 samp_offset = samp_offset_signal2corr - samp_diff_sym_4 - length(signal2corr) + 2;
 phase_offset_exp = corr_4_6(samp_offset_signal2corr)./abs(corr_4_6(samp_offset_signal2corr));
 
