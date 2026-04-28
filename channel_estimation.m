@@ -13,12 +13,21 @@ function estimated_signal = estimate_channel(signal, zc_symbol_4, zc_symbol_6)
     cplen = 72;
     cplen_extended = 80;
 
-    received_zc_symbol_4_start_index = cplen_extended + 2*cplen + 3*ofdm_symb_len
+    % Find the received 4th symbol
+    received_zc_symbol_4_start_index = cplen_extended + 2*cplen + 3*ofdm_symb_len;
     received_zc_symbol_4 = signal(received_zc_symbol_4_start_index : received_zc_symbol_4_start_index + ofdm_symb_len + cplen -1);
     
+    % Find the received 6th symbol
+    received_zc_symbol_6_start_index = cplen_extended + 4*cplen + 5*ofdm_symb_len;
+    received_zc_symbol_4 = signal(received_zc_symbol_6_start_index : received_zc_symbol_6_start_index + ofdm_symb_len + cplen -1);
+
     % received_zc = zc * h (convolution with the impulse response)
     % Find H: the channel impulse response in the frequency domain
-    H = ifft( fft(received_zc_symbol_4) ./ fft(zc_symbol_4) ); 
+    H_1 = (fft(received_zc_symbol_4) ./ fft(zc_symbol_4)); 
+    H_2 = (fft(received_zc_symbol_6) ./ fft(zc_symbol_6)); 
+
+    % Combine the channel estimates
+    H = (H_1 + H_2) / 2;
 
     % Divide by the channel impulse response
     estimated_signal_in_freq = fft(signal) ./ H;
