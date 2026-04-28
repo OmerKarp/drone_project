@@ -115,32 +115,26 @@ phase_offset_exp = corr_4_6(samp_offset_signal2corr)./abs(corr_4_6(samp_offset_s
 synced_sig = signal(samp_offset:samp_offset+9880-1)*conj(phase_offset_exp);
 
 
-zc_4_sample = cp_len_ends+ofdm_sym_len+2*(cp_len+ofdm_sym_len)+1;
+zc_4_sample = cp_len_ends+ofdm_sym_len+2*(cp_len+ofdm_sym_len);
 zc_4_cand = synced_sig(zc_4_sample:zc_4_sample+cp_len+ofdm_sym_len-1);
-H = fft(zc_4_cand(73:end))./fft(zc_seq_sym_4(73:end));
-%H = H(1:1024);
-
-sig2_8 = synced_sig(ofdm_sym_len+cp_len_ends+1:end-ofdm_sym_len-cp_len_ends); %symbols 2 - 8
-sig9 = synced_sig(end-ofdm_sym_len+1:end);                                %symbols 9
+H = fft(zc_4_cand)./fft(zc_seq_sym_4);
+sig2_8 = sig(ofdm_sym_len+cp_len_ends+1:end-ofdm_sym_len-cp_len_ends); %symbols 2 - 8
+sig9 = sig(end-ofdm_sym_len+1:end);                                %symbols 9
 
 demod2_8 = reshape(sig2_8,ofdm_sym_len+cp_len,[]);
 demod2_8 = demod2_8(cp_len+1:end,:);%cp removal
 
-demod2_8 = fftshift(fft((demod2_8))./H,1);
+demod2_8 = fftshift(fft((demod2_8))./,1);
 demod2_8 = demod2_8(:);
 
 demod2_8_no_zc = [demod2_8(1:2*ofdm_sym_len) ; demod2_8(3*ofdm_sym_len+1:4*ofdm_sym_len) ; demod2_8(5*ofdm_sym_len+1:end)];
-demod9 = fftshift(fft((sig9))./H);
+demod9 = fftshift(fft((sig9)));
 
-demod_channel_est = [demod2_8_no_zc ; demod9];
-demod_channel_est = reshape(demod_channel_est,ofdm_sym_len,[]);
-demod_channel_est = [demod_channel_est(213:513,:); demod_channel_est(515:813,:)];
+demod = [demod2_8_no_zc ; demod9];
+demod = reshape(demod,ofdm_sym_len,[]);
+demod = [demod(213:513,:); demod(515:813,:)];
 
-demod_channel_est = demod_channel_est(:);
-figure;
-hold on;
-scatterplot(demod_channel_est);
-hold off;
+demod = demod(:);
 
 
 [spec,f,t] = spectrogram(synced_sig,g,L,Ndft,fs,"centered");

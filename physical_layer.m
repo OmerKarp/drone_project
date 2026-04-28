@@ -30,10 +30,10 @@ raw_hex = physical_layer_demod(signal);
 % disp(1800 - nnz(raw_hex == known_raw_hex))
 
 % a = demod_synced_samples(known_synced_signal)
-% b = hexToBinaryVector(a)
-% known_bits = hexToBinaryVector(known_raw_hex)
-% 
-% find(b ~= known_bits)
+b = hexToBinaryVector(raw_hex);
+known_bits = hexToBinaryVector(known_raw_hex);
+
+find(b ~= known_bits)
 
 %% <================== Physical Layer ==================>
 
@@ -78,7 +78,7 @@ function raw_hex = physical_layer_demod(raw_samples)
     % synced_samples_with_channel_estimation = fix_channel_estimation(synced_samples)
 
     % Take the synced_samples -> raw_hex for the data_layer
-    raw_hex = demod_synced_samples(synced_samples);
+    raw_hex = demod_synced_samples(synced_samples,zc_symbol_4);
 end
 
 % TESTED
@@ -183,36 +183,40 @@ end
 
 % synced_samples -> raw_hex, using ofdm and qpsk demodulations.
 % TESTED
-function raw_hex = demod_synced_samples(synced_samples)
-    demoded_ofdm = ofdm_demod(synced_samples);
+function raw_hex = demod_synced_samples(synced_samples,zc_seq_sym_4)
+    demoded_ofdm = ofdm_demod_with_ch_est(synced_samples,zc_seq_sym_4);
     raw_bit_vec = qpskdemod(demoded_ofdm);
     raw_hex = binaryVectorToHex(raw_bit_vec);
 end
 
 % TESTED
-function demod = ofdm_demod(sig)
+function demod_channel_est = ofdm_demod_with_ch_est(sig,zc_seq_sym_4)
     cp_len = 72;
     cp_len_extended = 80;
-    ofdm_symbol_len = 1024;
+    ofdm_sym_len = 1024;
 
     %we know symbol 1 is not relevant.
-    sig2_8 = sig(ofdm_symbol_len + cp_len_extended + 1 : end - ofdm_symbol_len - cp_len_extended); %symbols 2 - 8
-    sig9   = sig(end - ofdm_symbol_len + 1 : end);                                                 %symbols 9
+    zc_4_sample = cp_len_extended+ofdm_sym_len+2*(cp_len+ofdm_sym_len)+1;
+    zc_4_cand = sig(zc_4_sample:zc_4_sample+cp_len+ofdm_sym_len-1); %zc_4 candidate
+    H = fft(zc_4_cand(cp_len+1:end))./fft(zc_seq_sym_4(cp_len+1:end)); %estimate channel
     
-    demod2_8 = reshape(sig2_8 , ofdm_symbol_len + cp_len, []);
-    demod2_8 = demod2_8(cp_len + 1 : end, :);    %cp removal
+    sig2_8 = sig(ofdm_sym_len+cp_len_extended+1:end-ofdm_sym_len-cp_len_extended); %symbols 2 - 8
+    sig9 = sig(end-ofdm_sym_len+1:end);                                %symbols 9
     
-    demod2_8 = fftshift(fft(demod2_8), 1);
+    demod2_8 = reshape(sig2_8,ofdm_sym_len+cp_len,[]);
+    demod2_8 = demod2_8(cp_len+1:end,:);%cp removal
+    
+    demod2_8 = fftshift(fft(demod2_8)./H,1);
     demod2_8 = demod2_8(:);
     
-    demod2_8_no_zc = [demod2_8(1:2*ofdm_symbol_len) ; demod2_8(3*ofdm_symbol_len+1:4*ofdm_symbol_len) ; demod2_8(5*ofdm_symbol_len+1:end)];
-    demod9 = fftshift(fft((sig9)));
+    demod2_8_no_zc = [demod2_8(1:2*ofdm_sym_len) ; demod2_8(3*ofdm_sym_len+1:4*ofdm_sym_len) ; demod2_8(5*ofdm_sym_len+1:end)];
+    demod9 = fftshift(fft(sig9)./H,1);
     
-    demod = [demod2_8_no_zc ; demod9];
-    demod = reshape(demod,ofdm_symbol_len,[]);
-    demod = [demod(213:512,:); demod(514:813,:)];
+    demod_channel_est = [demod2_8_no_zc ; demod9];
+    demod_channel_est = reshape(demod_channel_est,ofdm_sym_len,[]);
+    demod_channel_est = [demod_channel_est(213:512,:); demod_channel_est(514:813,:)];
     
-    demod = demod(:);
+    demod_channel_est = demod_channel_est(:);
 end
 
 % TESTED
