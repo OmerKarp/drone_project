@@ -1,0 +1,47 @@
+%% Channel estimation
+
+clc;
+clear;
+close all;
+
+
+
+
+function estimated_signal = estimate_channel(signal, zc_symbol_4, zc_symbol_6)
+
+    ofdm_symb_len = 1024;
+    cplen = 72;
+    cplen_extended = 80;
+
+    received_zc_symbol_4_start_index = cplen_extended + 2*cplen + 3*ofdm_symb_len
+    received_zc_symbol_4 = signal(received_zc_symbol_4_start_index : received_zc_symbol_4_start_index + ofdm_symb_len + cplen -1);
+    
+    % received_zc = zc * h (convolution with the impulse response)
+    % Find H: the channel impulse response in the frequency domain
+    H = ifft( fft(received_zc_symbol_4) ./ fft(zc_symbol_4) ); 
+
+    % Divide by the channel impulse response
+    estimated_signal_in_freq = fft(signal) ./ H;
+    
+    % Convert the estimated signal back to the time domain
+    estimated_signal = ifft(estimated_signal_in_freq);
+
+end
+
+
+function [zc_symbol_4, zc_symbol_6] = get_zc_symbols()
+    %create raw zc sequences.
+    seq1 = zadoffChuSeq(600,601);
+    seq2 = zadoffChuSeq(147,601);
+    
+    % pad them with zeros at the start and end
+    seq1 = [zeros(212,1) ; seq1 ; zeros(1024-813,1)];
+    seq2 = [zeros(212,1) ; seq2 ; zeros(1024-813,1)];
+    
+    % ofdm mod (do ifft)
+    seq1 = ifft(ifftshift(seq1));
+    seq2 = ifft(ifftshift(seq2));
+    
+    zc_symbol_4 = [seq1(end-72+1:end) ; seq1];
+    zc_symbol_6 = [seq2(end-72+1:end) ; seq2];
+end

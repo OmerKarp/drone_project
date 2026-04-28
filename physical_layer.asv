@@ -1,0 +1,112 @@
+clc
+clear
+close all
+
+raw_hex = 'D2C3DE7944A59EBC9B162D46F997D696676D5DB62EE36220D2E1D99DA7BE9F9CD8CC716B5AB2F0428634B86246DB3F2D5B48E622C65E8E1B8988488769F6780827A382E3A702508CD1149D49AA6233677F430D03668B6184FEB10B688305F63F882F500AF60D020618BD42CBDA2F69581552E24FD3D3ADB41D085102586301C79BD9E8AC76633F1ECBC074E4C175969C43B33F92E58F6FDDA1B6870C3BE04590DF825F71D2E5F424AEB1E5745A565B17330F496F4C83E7FBCBD19DAEFC7B37E002B2B9751458F567B164F316E4F2C9FAE7786E9FBD06A20ECEDDC9372048D0C8598150828ED071D91DA90CDB4CC3C04BFBC52BE843C24651C71C10D63683885658485B3376C374FA471B94EC5D924C1D9337C1EA0F8BCC83814E5C184C98C9F12F14E6D18C0535F2550B88EC6B91EA8668C1FE720687402F7A340AE3F5F3C04F6735712191A9349ED3A0BA02916FBDA6C340DA0AA91EF747A859DAB180E5BF8000C2415375E85F3C2264546021CF5BEBFA7B78D480A55E8FC3A9F50213302FAE17708CA2127A23A19C87C66B43A972583C6F05DEFDF070E072EAF5DD867C83468B0E9FD6C4472D05B1DC8248E24CE4548E81F03A7ED416916F516B3FA3A6311CE2F7080B40FE2CE0DB590FCAB21C38FE2E1F6FA16DE33E9D9B83F1F95F2B8C7FFEB4B1C3A67C1D4F6DFCDB2516B8DC99C14D5F4AA4C1264CB61068087676FCCA5224D4D16960F8C68733C3DD160BEDF4EDECB1D2B08D286538C00D6CC6B79E631F3B886942DFE29D6328D0C6A8673F2E534B5987B4E4B8E4ADAEA9EE3F0A2356894273DB1D18CE67D68712F7789D04E0BD27C386DB7AF413A8209EF7CBA9B776990A0DB50616323DDC70C14DB46AB1D922E4325115EF11DE17FB55765550BB67174BC182EF5DC41E846991B3C4F6CBCCE8B81B81C91734DC48223E8587ABD8F7EEA02DD344989F32B95E901B86E14254A9033C7E07DEA7904DEE94A1CF72089836BA9FA7B416740C61C1B0DDC90A6B6C1FBF2CC21CA5FA1CB9BDADC1CCB2386D6F3030112E74D0E8BB32098AD30A5A21C4EB89BF35201279A7411869F2253FBC9A2DE60576FE4D3C1F39CA208890D7CE98DEE35939E6C23C7AE2A07FEC2BB4AFC25E68169C6B60C45A38B3F634FA120C99CFC853F76546CDA19A17464027A84E4F2CE220CB1AD7163DD6205F906EB0AC818EC3892F8BD832A058EB45B7B2B5424AB6C6174E85EADCF49858FF37AC700FCEC6C417E7713A47BDB757C687FF3C21C91E52B9';
+
+%% open signal
+raw_sample_base = '.\Provided_files\raw_samples\';
+synced_sample_base = '.\Provided_files\synced_samples\';
+
+signal_path = [raw_sample_base,'raw_samples_12_Feb_2026_09_30_39_442_fs_10MHz.32fc'];
+signal_sync_path = [synced_sample_base,'synced_samples_12_Feb_2026_09_30_39_442_fs_15.36MHz.32fc'];
+
+%import raw signal
+fid = fopen(signal_path, 'rb'); % 'rb' for read-binary
+data = fread(fid, [inf], 'float32');
+fclose(fid);
+signal = (data(1:2:end) + 1j * data(2:2:end)) ;
+
+%import synced signal
+fid = fopen(signal_sync_path, 'rb'); % 'rb' for read-binary
+data = fread(fid, [inf], 'float32');
+fclose(fid);
+known_synced_signal = (data(1:2:end) + 1j * data(2:2:end)) ;
+
+%% <================== Physical Layer ==================>
+
+a = demod_synced_samples(known_synced_signal)
+
+% M = 4;
+% data = randi([0 M-1],1000,1);
+% moded_data = pskmod(data, 4, pi/4, 'gray');
+% scatterplot(moded_data)
+% ofdmmod(moded_data, 1024)
+
+
+
+
+
+
+
+%% <================== Physical Layer ==================>
+
+function raw_hex = physical_layer_demod(raw_samples)
+    % Handle the raw samples
+    [zc_symbol_4, zc_symbol_6] = get_zc_symbols()
+    
+    % Take the synced samples and return the hex for the data_layer
+    raw_hex = demod_synced_samples(synced_samples);
+end
+
+function [zc_symbol_4, zc_symbol_6] = get_zc_symbols()
+    %create raw zc sequences.
+    seq1 = zadoffChuSeq(600,601);
+    seq2 = zadoffChuSeq(147,601);
+    
+    % pad them with zeros at the start and end
+    seq1 = [zeros(212,1) ; seq1 ; zeros(1024-813,1)];
+    seq2 = [zeros(212,1) ; seq2 ; zeros(1024-813,1)];
+    
+    % ofdm mod (do ifft)
+    seq1 = ifft(ifftshift(seq1));
+    seq2 = ifft(ifftshift(seq2));
+    
+    zc_symbol_4 = [seq1(end-72+1:end) ; seq1];
+    zc_symbol_6 = [seq2(end-72+1:end) ; seq2];
+end
+
+% synced_samples -> raw_hex, using ofdm and qpsk demodulations.
+function raw_hex = demod_synced_samples(synced_samples)
+    demoded_ofdm = ofdm_demod(synced_samples);
+    raw_bit_vec = qpskdemod(demoded_ofdm);
+    raw_hex = binaryVectorToHex(raw_bit_vec);
+end
+
+function demod = ofdm_demod(sig)
+    cp_len = 72;
+    cp_len_extended = 80;
+    ofdm_symbol_len = 1024;
+
+    %we know symbol 1 is not relevant.
+    sig2_8 = sig(ofdm_symbol_len + cp_len_extended + 1 : end - ofdm_symbol_len - cp_len_extended); %symbols 2 - 8
+    sig9   = sig(end - ofdm_symbol_len + 1 : end);                                                 %symbols 9
+    
+    demod2_8 = reshape(sig2_8 , ofdm_symbol_len + cp_len, []);
+    demod2_8 = demod2_8(cp_len + 1 : end, :);    %cp removal
+    
+    demod2_8 = fftshift(fft(demod2_8), 1);
+    demod2_8 = demod2_8(:);
+    
+    demod2_8_no_zc = [demod2_8(1:2*ofdm_symbol_len) ; demod2_8(3*ofdm_symbol_len+1:4*ofdm_symbol_len) ; demod2_8(5*ofdm_symbol_len+1:end)];
+    demod9 = fftshift(fft((sig9)));
+    
+    demod = [demod2_8_no_zc ; demod9];
+    demod = reshape(demod,ofdm_symbol_len,[]);
+    demod = [demod(213:513,:); demod(515:813,:)];
+    
+    demod = demod(:);
+end
+
+function raw_bit_vec = qpskdemod(sig)
+    symbols = zeros(1, length(sig));
+
+    symbols(real(sig) > 0 & imag(sig) > 0) = 0;
+    symbols(real(sig) < 0 & imag(sig) > 0) = 1;
+    symbols(real(sig) < 0 & imag(sig) < 0) = 3;
+    symbols(real(sig) > 0 & imag(sig) < 0) = 2;
+
+    raw_bit_mat_columns = de2bi(symbols, 2, 'left-msb');
+    raw_bit_mat_rows = raw_bit_mat_columns.';
+    raw_bit_vec = reshape(raw_bit_mat_rows, 1, []);
+end
