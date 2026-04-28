@@ -25,11 +25,11 @@ known_synced_signal = (data(1:2:end) + 1j * data(2:2:end)) ;
 
 %% <================== Physical Layer ==================>
 
-raw_hex = physical_layer_demod(signal);
+% raw_hex = physical_layer_demod(signal);
 
-disp(1800 - nnz(raw_hex == known_raw_hex))
+% disp(1800 - nnz(raw_hex == known_raw_hex))
 
-% a = demod_synced_samples(known_synced_signal)
+a = demod_synced_samples(known_synced_signal)
 
 %% <================== Physical Layer ==================>
 
@@ -70,8 +70,11 @@ function raw_hex = physical_layer_demod(raw_samples)
     packet_length = 9880;
     synced_samples = signal(samp_offset : samp_offset + packet_length - 1) .* exp(-1j * phase_offset);
 
+    % Channel estimation
+    synced_samples_with_channel_estimation = fix_channel_estimation(synced_samples)
+
     % Take the synced_samples -> raw_hex for the data_layer
-    raw_hex = demod_synced_samples(synced_samples);
+    raw_hex = demod_synced_samples(synced_samples_with_channel_estimation);
 end
 
 % TESTED

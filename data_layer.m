@@ -71,7 +71,8 @@ constraintLength = 4;
 generators = [13 15];
 trellis = poly2trellis(constraintLength, generators, 13);
 % 2. Generate/Encode Data
-data = randi([0 1], 100, 1);
+% data = randi([0 1], 100, 1);
+data = [0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1];
 encodedData = convenc(data, trellis);
 % 3. Viterbi Decoding
 tbdepth = 34; % Traceback depth
