@@ -22,11 +22,11 @@ signal_ref = (data(1:2:end) + 1j * data(2:2:end)) ;
 
 %% get to know the signal. plots
 fs = 10e6;
-ofdm_len = 1024;
+ofdm_sym_len = 1024;
 SCS = 15e3; %sub carrier spacing
 cp_len = 72;
 cp_len_ends = 80;
-fs_spc_1 = ofdm_len.*SCS;
+fs_spc_1 = ofdm_sym_len.*SCS;
 M = 32;
 g = hann(M);
 L = 0.5*M;
@@ -78,22 +78,60 @@ zc_seq_sym_4 = seq1;
 zc_seq_sym_6 = seq2;
 
 %%
+
+zc_4_cp = seq1(end-72+1:end);
+zc_6_cp = seq2(end-72+1:end);
+
+corr1 = ifft(fft((signal)).*fft([conj(flip((zc_4_cp))); zeros(length(signal)-length(zc_4_cp),1)]));
+figure; plot(abs(corr1)); %we get 2 peaks for cp, spaced 1024 samples from each other(T_ofdm_sym);
+sig2corr = [1;zeros(1023,1);1];%1024 samples overall
+corr11 = ifft(fft(abs(corr1)).*fft([conj(flip((sig2corr))); zeros(length(corr1)-length(sig2corr),1)]));
+figure; plot(abs(corr11));
+[~,first_peak_samp] = max(abs(corr11));
+first_peak_samp = first_peak_samp-1024;
+second_peak_samp= first_peak_samp+ofdm_sym_len;
+freq_offset_4 = angle(conj(corr1(first_peak_samp))*corr1(second_peak_samp))./(2*pi*ofdm_sym_len/fs);
+
+
+corr1 = ifft(fft((signal)).*fft([conj(flip((zc_6_cp))); zeros(length(signal)-length(zc_6_cp),1)]));
+figure; plot(abs(corr1)); %we get 2 peaks for cp, spaced 1024 samples from each other(T_ofdm_sym);
+sig2corr = [1;zeros(1022,1);1];
+corr11 = ifft(fft(abs(corr1)).*fft([conj(flip((sig2corr))); zeros(length(corr1)-length(sig2corr),1)]));
+figure; plot(abs(corr11));
+[~,first_peak_samp] = max(abs(corr11));
+first_peak_samp = first_peak_samp-1023;
+second_peak_samp= first_peak_samp+ofdm_sym_len;
+freq_offset_6 = angle(conj(corr1(first_peak_samp))*corr1(second_peak_samp))./(2*pi*ofdm_sym_len/fs);
+
+%freq_offset = 0.5*(freq_offset_6+freq_offset_4);
+freq_offset = freq_offset_4;
+
+t_val = ((0:length(signal)-1)./fs ).';
+signal = signal.*exp(-1j*2*pi*freq_offset*t_val);
 [freq_offset,phase_offset,phase_ref_samp] = find_freq_phase_offset(signal,zc_seq_sym_4,zc_seq_sym_6,fs);
 freq_phase_synced_signal = freq_phase_sync_signal(signal,phase_offset,freq_offset,phase_ref_samp,fs);
-samp_offset = find_samp_offset(freq_phase_synced_signal,zc_seq_sym_4,zc_seq_sym_6);
-synced_signal = samp_sync_signal(freq_phase_synced_signal,samp_offset);
-synced_signal_time_only = samp_sync_signal(signal,samp_offset);
+synced_signal = samp_sync_signal(freq_phase_synced_signal,1);
+synced_signal_time_only = samp_sync_signal(signal,1);
 
-demod_symbols = ofdm_demod(synced_signal,cp_len,cp_len_ends,ofdm_len);
+sym_demod = ofdm_demod(synced_signal,cp_len,cp_len_ends,ofdm_sym_len);
 
-zc_4_cand = signal(phase_ref_samp:phase_ref_samp+ofdm_len+cp_len);
+%zc_4_cand = signal(phase_ref_samp:phase_ref_samp+ofdm_sym_len+cp_len);
 
 
 %% ref signal
-demod_symbols_ref = ofdm_demod(signal_ref,cp_len,cp_len_ends,ofdm_len);
-[freq_offset,phase_offset,phase_ref_samp] = find_freq_phase_offset(signal_ref,zc_seq_sym_4,zc_seq_sym_6,fs);
-freq_phase_synced_signal_ref = freq_phase_sync_signal(signal_ref,phase_offset,freq_offset,phase_ref_samp,fs);
-demod_sym_ref2 = ofdm_demod(freq_phase_synced_signal_ref,cp_len,cp_len_ends,ofdm_len);
+demod_symbols_ref = ofdm_demod(signal_ref,cp_len,cp_len_ends,ofdm_sym_len);
+[freq_offset2,phase_offset,phase_ref_samp] = find_freq_phase_offset(signal_ref,zc_seq_sym_4,zc_seq_sym_6,fs);
+freq_phase_synced_signal_ref = freq_phase_sync_signal(signal_ref,phase_offset,freq_offset2,phase_ref_samp,fs);
+sym_ref = ofdm_demod(freq_phase_synced_signal_ref,cp_len,cp_len_ends,ofdm_sym_len);
+
+
+%%
+figure;
+hold on;
+scatterplot(sym_demod);
+scatterplot(sym_ref);
+hold off;
+
 %% functions
 function demod = ofdm_demod(sig,cp_len,cp_len_ends,ofdm_len)
 %we know symbol 1 is not relevant.
