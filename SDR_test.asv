@@ -121,7 +121,6 @@ release(rx1);
 
 %% 
 
-function 
 function set_new_fc()
     posibble_freqs = [5.7965e9, 5.7765e9, 5.7565e9, 2.3995e9, 2.4145e9, 2.4295e9, 2.4445e9, 2.4595e9];
 

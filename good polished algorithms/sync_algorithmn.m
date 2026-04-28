@@ -90,7 +90,7 @@ corr2 = ifft(fft((signal)).*fft([conj(flip((zc_seq_sym_6))); zeros(length(signal
 [~,samp2] = max(abs(corr2));
 phase_diff = angle(corr2(samp2).*conj(corr1(samp1))); % we can detect freq changes from -3500 to 3500 hz (1/2*t_diff4_6)
 time_diff_zc_sym = 2* (ofdm_sym_len+cp_len-1)./fs; %2 ofdm_symbols
-freq_offset_soft = phase_diff./(2*pi*time_diff_zc_sym)-25;
+freq_offset_soft = phase_diff./(2*pi*time_diff_zc_sym);
 t_val = ((0:length(signal)-1)./fs ).';
 signal = signal.*exp(-1j*2*pi*freq_offset_soft*t_val);
 
@@ -112,8 +112,8 @@ phase_offset_exp = corr_4_6(samp_offset_signal2corr)./abs(corr_4_6(samp_offset_s
 %2D frequency-time search would also work here with signal2corr because
 %frequency shifts affect different zc sequences(chirps) differently!!
 
-synced_sig_coarse = signal(samp_offset:samp_offset+9880-1)*conj(phase_offset_exp);
-[spec,f,t] = spectrogram(synced_sig_coarse,g,L,Ndft,fs,"centered");
+synced_sig = signal(samp_offset:samp_offset+9880-1)*conj(phase_offset_exp);
+[spec,f,t] = spectrogram(synced_sig,g,L,Ndft,fs,"centered");
 figure;
 mesh(t,f,abs(spec).^2)
 title("spectrogram")
@@ -131,19 +131,19 @@ view(2), axis tight
 
 figure;
 hold on;
-plot(abs(synced_sig_coarse));
+plot(abs(synced_sig));
 plot(abs(signal_ref));
 hold off;
 
 figure;
 hold on;
-plot(angle(synced_sig_coarse));
+plot(angle(synced_sig));
 plot(angle(signal_ref));
 hold off;
 
 signal_ref = signal_ref.*exp(1j*2*pi*10*((0:length(signal_ref)-1)./fs).');
 sym_ref = ofdm_demod(signal_ref,cp_len,cp_len_ends,ofdm_sym_len);
-sym_demod = ofdm_demod(synced_sig_coarse,cp_len,cp_len_ends,ofdm_sym_len);
+sym_demod = ofdm_demod(synced_sig,cp_len,cp_len_ends,ofdm_sym_len);
 
 figure;
 hold on;

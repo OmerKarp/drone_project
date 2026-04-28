@@ -25,15 +25,15 @@ known_synced_signal = (data(1:2:end) + 1j * data(2:2:end)) ;
 
 %% <================== Physical Layer ==================>
 
-% raw_hex = physical_layer_demod(signal);
+raw_hex = physical_layer_demod(signal);
 
 % disp(1800 - nnz(raw_hex == known_raw_hex))
 
-a = demod_synced_samples(known_synced_signal)
-b = hexToBinaryVector(a)
-known_bits = hexToBinaryVector(known_raw_hex)
-
-find(b ~= known_bits)
+% a = demod_synced_samples(known_synced_signal)
+% b = hexToBinaryVector(a)
+% known_bits = hexToBinaryVector(known_raw_hex)
+% 
+% find(b ~= known_bits)
 
 %% <================== Physical Layer ==================>
 
