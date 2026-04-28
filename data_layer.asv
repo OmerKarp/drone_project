@@ -8,13 +8,14 @@ clear
 close all
 
 % 1. Specify the folder path (use pwd for current directory)
-myFolder = '.\Provided_files\raw_bits'; 
+myFolder = '.\Provided_files\raw_bits';
 
 % 2. Get a list of all files with the .txt extension
 filePattern = fullfile(myFolder, '*.txt');
 theFiles = dir(filePattern);
 
 positions = zeros(3, length(theFiles));
+
 % 3. Iterate through each file in the list
 for k = 1 : length(theFiles)
     baseFileName = theFiles(k).name;
@@ -22,15 +23,13 @@ for k = 1 : length(theFiles)
     fprintf('Now reading %s\n', fullFileName);
     
     % 4. Use an appropriate function to read the data
-    % Use readtable for mixed data or readmatrix for numeric-only
-    % raw_hex = readtable(fullFileName, 'TextType', 'string');
     raw_hex = fileread(fullFileName);
 
-    [packet_obj, is_data_corrupted] = bits_layer(raw_hex)
+    [packet_obj, is_data_corrupted] = bits_layer(raw_hex);
     positions(:, k) = [packet_obj.AppLatitude packet_obj.AppLongitude packet_obj.Altitude];
 end
 
-disp(positions)
+% disp(positions)
 
 % 1. Sample Data [Lon, Lat, Alt(meters)]
 lat = positions(1, :);
@@ -38,22 +37,6 @@ lon = positions(2, :);
 alt = positions(3, :);
 
 reply_path(lat, lon, alt)
-
-% mean_Latitude = mean(positions(1, :));
-% mean_Longitude = mean(positions(2, :));
-% mean_Altitude = mean(positions(3, :));
-
-% % 2. Create a geographic globe
-% uif = uifigure;
-% g = geoglobe(uif);
-% 
-% % 3. Plot the path on the globe
-% % "c" sets the color to cyan. Heights can be referenced to "geoid" or "ellipsoid"
-% geoplot3(g, lat, lon, alt, "c-", "LineWidth", 3, "HeightReference", "geoid");
-% 
-% % 4. Adjust camera to view the data
-% campos(g, mean_Latitude, mean_Longitude, 5e3); % [lat, lon, camera_altitude]
-
 
 %% <================== Single File Simulation ==================>
 
@@ -122,7 +105,6 @@ function [packet_obj, is_data_corrupted] = bits_layer(packet_in_hex)
     % Source: https://en.wikipedia.org/wiki/Cyclic_redundancy_check#Polynomial_representations
     % The polynomial:
     CRC24_poly = 'z^24 + z^23 + z^18 + z^17 + z^14 + z^11 + z^10 + z^7 + z^6 + z^5 + z^4 + z^3 + z + 1';
-    % CRC24_poly = [1 1 0 0 0 0 1 1 0 0 1 0 0 1 1 0 0 1 1 1 1 1 0 1 1];
     
     [data_no_CRC24, is_data_corrupted] = check_CRC(data_no_ECC, CRC24_poly);
     if is_data_corrupted
@@ -141,7 +123,7 @@ function [packet_obj, is_data_corrupted] = bits_layer(packet_in_hex)
     end
 end
 
-%% <================== My Functions ==================>
+%% <================== Functions For Each Section ==================>
 
 % Author - Omer Karp
 % Section - Start
@@ -346,16 +328,14 @@ end
 % Author - Omer Karp
 % Date - (23/4/2026)
 % Section 3.5
-function [crcBits, is_data_corrupted] = check_CRC(data, poly, initial_state, is_reflect_input, is_direct_method)    
+function [crcBits, is_data_corrupted] = check_CRC(data, poly, initial_state)    
     arguments
         data
         poly
         initial_state = 0 % default (0 when not used) state
-        is_reflect_input = false;
-        is_direct_method = false;
     end
 
-    config = crcConfig(Polynomial=poly, InitialConditions=initial_state, ReflectInputBytes=false, DirectMethod=is_direct_method);
+    config = crcConfig(Polynomial=poly, InitialConditions=initial_state);
     [crcBits, is_data_corrupted] = crcDetect(data.', config);
 end
 
@@ -397,14 +377,18 @@ function packet_obj = get_data_from_raw_packet(data)
 
     % Do the CRC check
     % The polynomial & Initial State are:
-    % CRC16_poly = 'z^16 + z^11 + z^4 + 1'; % 0x8810 
+    CRC16_poly = 'z^16 + z^11 + z^4 + 1'; % 0x8810 
     % CRC16_start = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0]; % 0x496C
 
     % poly = [1 0 0 0 0 1 0 0 0 0 0 0 1 0 0 0 1];
-    % CRC16_initial_state = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0];
+    CRC16_initial_state = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0];
 
     % crc_bits = check_CRC(packet_data, CRC16_poly, CRC16_start);
-    % crc_bits = check_CRC(data, CRC16_poly, CRC16_initial_state, true, true);
+    bits_mat = reshape(data, 8, []).';
+    switched_bits_order_mat = flipud(bits_mat).';
+    bits = reshape(switched_bits_order_mat, 1, []);
+
+    crc_bits = check_CRC(bits, CRC16_poly, CRC16_initial_state);
 
     % packet_obj.is_CRC_valid = (binaryVectorToHex(crc_bits) == packet_obj.CRC16);
     packet_obj.is_CRC_valid = true;
@@ -495,13 +479,14 @@ end
 
 % Author - Omer Karp
 % Description - Show the path on 2D and 3D, plus reply it as an anomation.
+% Credit - https://www.mathworks.com/help/map/visualize-uav-flight-path-on-synchronized-maps.html
 function reply_path(lat, lon, alt)
     mean_Latitude = mean(lat);
     mean_Longitude = mean(lon);
     mean_Altitude = mean(alt);
 
     figpos = [1000 500 800 400];
-    uif = uifigure(Position=figpos);
+    uif = uifigure(Position=figpos, WindowState='maximized');
     ug = uigridlayout(uif,[1,2]);
     p1 = uipanel(ug);
     p2 = uipanel(ug);
@@ -570,7 +555,7 @@ function reply_path(lat, lon, alt)
     hold(gx,"on")
     mstart = geoplot(gx, lat(1), lon(1), "ow", MarkerSize=10, MarkerFaceColor="magenta");
     mend = geoplot(gx, lat(end), lon(end), "ow", MarkerSize=10, MarkerFaceColor="blue");
-    icon = geoiconchart(gx, lat(1), lon(1), "my_output_resized.png", SizeData=30);
+    icon = geoiconchart(gx, lat(1), lon(1), "drone_image.png", SizeData=30);
     
     icon.DisplayName = "Current Location";
     mstart.DisplayName = "Start Location";
@@ -598,8 +583,10 @@ function reply_path(lat, lon, alt)
     pitch = -2.7689;
     campitch(gg,pitch)
 
-    % start the sound
-    
+    % Start the sound
+    [y, fs] = audioread('drone_sound_cut.mp3');
+    player = audioplayer(y, fs);
+    play(player); % Starts playback
     
     for k = 2:(length(lat)-1)
         % update icon on 2-D map
@@ -616,6 +603,11 @@ function reply_path(lat, lon, alt)
         drawnow
         pause(.25)
     end
+
+    stop(player);   % Stops playback completely
+
+    [y, fs] = audioread('done.mp3');
+    sound(y, fs); % Plays the audio
     
     campos(gg,lat(end),lon(end),alt(end)+100)
     dt.DataIndex = length(lat);
