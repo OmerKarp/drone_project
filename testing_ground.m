@@ -1,33 +1,25 @@
 clear
 close all
 clc
-%%
-seq1 = zadoffChuSeq(600,601);
-seq1_1 = seq1;
-seq2 = zadoffChuSeq(147,601);
 
-seq1(301) = 0;
-seq2(301) = 0;
+%% viterbi
 
-seq1 = [zeros(212,1);seq1;zeros(1024-813,1)];
-seq2 = [zeros(212,1);seq2;zeros(1024-813,1)];
 
-seq1 = (ifft(ifftshift(seq1)));
-seq2 = (ifft(ifftshift(seq2)));
+constraintLength = 4;
+data = [0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1];
 
-seq1 = [seq1(end-72+1:end) ; seq1];
-seq2 = [seq2(end-72+1:end) ; seq2];
+% 1 + D + D^2 + D^3 ⇒ 1111 (base 2) ⇒ 15
+% 1 + D^2 + D^3 ⇒ 1101 (base 2) ⇒ 13
+generators = [13 15];
+trellis = poly2trellis(constraintLength, generators, 13);
 
-fs = 10e6; %smaller because the ends are zeros already - more efficient.
-fs_spc_1 = 1024.*15e3;
-
-seq1 = resample(seq1,fs,fs_spc_1);
-seq2 = resample(seq2,fs,fs_spc_1);
-
-M = 64;
-g = hann(M,"periodic");
-L = 0.5*M;
-Ndft = 1024;
-
-spectrogram(seq1,g,L,Ndft,fs,"centered","yaxis");
+% 2. Generate/Encode Data
+encodedData = convenc(data, trellis);
+% 3. Viterbi Decoding
+tbdepth = 34; % Traceback depth
+decodedData = vitdec(encodedData, trellis, tbdepth, 'trunc', 'hard');
+% Verify
+if isequal(data, decodedData)
+    disp('Decoding successful');
+end
 

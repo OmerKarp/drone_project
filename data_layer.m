@@ -26,6 +26,11 @@ for k = 1 : length(theFiles)
     raw_hex = fileread(fullFileName);
 
     [packet_obj, is_data_corrupted] = bits_layer(raw_hex);
+    
+    if is_data_corrupted
+        disp("(+) Packet is corrupted!")
+    end
+
     positions(:, k) = [packet_obj.AppLatitude packet_obj.AppLongitude packet_obj.Altitude];
 end
 
@@ -116,7 +121,6 @@ function [packet_obj, is_data_corrupted] = bits_layer(packet_in_hex)
 
     % Section 3.6 - Packet Structure & Data Validation
     packet_obj = get_data_from_raw_packet(data_no_CRC24);
-    is_data_corrupted = false;
     if ~packet_obj.is_CRC_valid
         disp('(-) CRC16 Check Failed, Data is corrupted.');
         is_data_corrupted = true;
@@ -329,14 +333,15 @@ end
 % Author - Omer Karp
 % Date - (23/4/2026)
 % Section 3.5
-function [crcBits, is_data_corrupted] = check_CRC(data, poly, initial_state)    
+function [crcBits, is_data_corrupted] = check_CRC(data, poly, initial_state, direct_method)    
     arguments
         data
         poly
         initial_state = 0 % default (0 when not used) state
+        direct_method logical = false
     end
 
-    config = crcConfig(Polynomial=poly, InitialConditions=initial_state);
+    config = crcConfig(Polynomial=poly, InitialConditions=initial_state, DirectMethod=direct_method);
     [crcBits, is_data_corrupted] = crcDetect(data.', config);
 end
 
@@ -378,21 +383,18 @@ function packet_obj = get_data_from_raw_packet(data)
 
     % Do the CRC check
     % The polynomial & Initial State are:
-    % CRC16_poly = 'z^16 + z^11 + z^4 + 1'; % 0x8810 
-    % CRC16_start = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0]; % 0x496C
+    % CRC16_poly = 'z^16 + z^11 + z^4 + 1';
+    CRC16_poly = [1 0 0 0 1 0 0 0 0 0 0 1 0 0 0 0 1];
+    CRC16_initial_state = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0];
 
-    % poly = [1 0 0 0 0 1 0 0 0 0 0 0 1 0 0 0 1];
-    % CRC16_initial_state = [0 1 0 0 1 0 0 1 0 1 1 0 1 1 0 0];
+    bits_mat = reshape(packet_data, 8, []).';
+    switched_bits_order_mat = fliplr(bits_mat).';
+    bits = reshape(switched_bits_order_mat, 1, []);
+    
+    is_direct_method = true;
+    [~, is_data_corrupted] = check_CRC(bits, CRC16_poly, CRC16_initial_state, is_direct_method);
 
-    % crc_bits = check_CRC(packet_data, CRC16_poly, CRC16_start);
-    % bits_mat = reshape(data, 8, []).';
-    % switched_bits_order_mat = flipud(bits_mat).';
-    % bits = reshape(switched_bits_order_mat, 1, []);
-
-    % crc_bits = check_CRC(bits, CRC16_poly, CRC16_initial_state);
-
-    % packet_obj.is_CRC_valid = (binaryVectorToHex(crc_bits) == packet_obj.CRC16);
-    packet_obj.is_CRC_valid = true;
+    packet_obj.is_CRC_valid = ~is_data_corrupted;
 end
 
 % Author - Omer Karp
