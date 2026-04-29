@@ -36,8 +36,11 @@ is_showing_path = false;
 fc = 2.4295e9;
 fs = 15.36e6;
 packet_length = 9960;
-packets_per_buffer = 20;
-buffer = zeros(packets_per_buffer*packet_length,1);
+packets_per_buffer = 1;
+packet_overlap = 1;
+buffer = zeros((packets_per_buffer+packet_overlap)*packet_length,1);
+last_buffer = zeros(packet_overlap*packet_length,1);
+
 papr_thresh = 300; % Threshold for detecting a packet, found empirically
 
 % RX
@@ -50,7 +53,7 @@ rx1 = comm.SDRuReceiver('Platform', 'B210', ...
     'Gain', 20, ...
     'OutputDataType', 'double', ...
     'MasterClockRate', mcr, ...  
-    'SamplesPerFrame',2^10, ...
+    'SamplesPerFrame',2^12, ...
     'DecimationFactor', decim); 
 
 rx1.ChannelMapping = 2; 
@@ -63,8 +66,9 @@ positions = zeros(3, 10);
 position_index = 1;
 
 while frames < number_of_frames
-    buffer = capture(rx1, packets_per_buffer*packet_length);
+    buffer = [last_buffer ;capture(rx1, packets_per_buffer*packet_length)];
     raw_hex = physical_layer_demod(buffer, papr_thresh, fs);
+    last_buffer = buffer(end-packet_overlap*packet_length+1:end);
 
     if isempty(raw_hex)
         %disp("(-) No signal found")
@@ -148,8 +152,11 @@ function raw_hex = physical_layer_demod(signal,papr_thresh,fs)
 
     % Sync the signal with phase and time
     packet_length = 9880;
-    if(samp_offset<1  || samp_offset + packet_length -1 >length(signal))
 
+    %whole packet is out of boundaries, pass it to the next buffer
+    if(samp_offset<1  || samp_offset + packet_length -1 >length(signal))
+        raw_hex = [];
+        return
     end
     synced_samples = signal(samp_offset : samp_offset + packet_length - 1) .* exp(-1j * phase_offset);
 
@@ -261,6 +268,13 @@ function [data_only_cp,zc_4_peak_samp,is_threshold] = extract_symbol3_cp(zc_symb
         return;
     end
     data_cp_samp = zc_4_peak_samp - length(zc_symbol_4) - cp_len + 1;
+
+    % If sample is out of boundries, move to the next buffer
+    if data_cp_samp < 1 || data_cp_samp + cp_len - 1 > length(raw_samples)-1
+        data_only_cp=[];
+        zc_4_peak_samp = 0;
+        return;
+    end
     data_only_cp = raw_samples(data_cp_samp : data_cp_samp + cp_len - 1);
     
     %normalize samples to regular samples.
