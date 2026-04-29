@@ -23,46 +23,52 @@ data = fread(fid, [inf], 'float32');
 fclose(fid);
 known_synced_signal = (data(1:2:end) + 1j * data(2:2:end)) ;
 
+%external recording
+%signal = load("C:\Users\eladm\Desktop\drone sigint\drone_project\good polished algorithms\rec1.mat").data2;
+
 %% <================== Physical Layer ==================>
 
-% signal = load("C:\Users\Student\Desktop\Matlab\drone_project\rec1.mat")
-
-raw_hex = physical_layer_demod(signal);
-% raw_hex = physical_layer_demod(signal.data2);
+fs = 10e6; %change according to signal samppling rate!
+raw_hex = physical_layer_demod(signal,fs);
 
 % disp(1800 - nnz(raw_hex == known_raw_hex))
 
 % a = demod_synced_samples(known_synced_signal)
-b = hexToBinaryVector(raw_hex);
-known_bits = hexToBinaryVector(known_raw_hex);
-
-find(b ~= known_bits)
+% b = hexToBinaryVector(raw_hex);
+% known_bits = hexToBinaryVector(known_raw_hex);
+% 
+% find(b ~= known_bits)
 
 %% <================== Physical Layer ==================>
 
 % Handle the raw samples and turn to synced samples
-function raw_hex = physical_layer_demod(raw_samples)
+function raw_hex = physical_layer_demod(signal,fs)
     % Params
-    fs = 10e6;
     ofdm_sym_len = 1024;
     SCS = 15e3; %sub carrier spacing
-    fs_spc_1 = ofdm_sym_len .* SCS;
+    fs_spc_1 = ofdm_sym_len * SCS;
 
-    % Resample the raw_samples
-    raw_samples = resample(raw_samples, fs_spc_1, fs);
-    fs = fs_spc_1; %update fs
-    
+    % Resample the raw_samples if fs<fs_spc_1
+    if fs<fs_spc_1
+        signal = resample(signal, fs_spc_1, fs);
+        fs = fs_spc_1; %update fs
+    end
     % Creating the ZaddOff-Chu sequences
     [zc_symbol_4, zc_symbol_6] = create_zc_symbols();
 
     % Extracting the CP
-    data_only_cp = extract_data_cp(zc_symbol_4, raw_samples);
+    [data_only_cp,zc_4_peak_samp] = extract_data_cp(zc_symbol_4, signal);
+    
+    %if there are a lot of packets, filter by max value of zc_4 corr peak-
+    %use this packet, the code is designed for one packet at a time.
+    overhead = 1000; %overhead in samples
+    signal = initial_zc_very_coarse_time_sync(signal,zc_4_peak_samp,overhead);
 
     % Find freq_offset coarse
-    freq_offset_coarse = find_freq_offset_coarse(raw_samples, data_only_cp, fs);
+    freq_offset_coarse = find_freq_offset_coarse(signal, data_only_cp, fs);
 
     % Correction with freq_coarse
-    signal = fix_freq(raw_samples, freq_offset_coarse, fs);
+    signal = fix_freq(signal, freq_offset_coarse, fs);
     
     % Frequency soft fix
     freq_offset_soft = find_freq_soft(signal, zc_symbol_4, zc_symbol_6, fs);
@@ -81,6 +87,18 @@ function raw_hex = physical_layer_demod(raw_samples)
     raw_hex = demod_synced_samples(synced_samples, zc_symbol_4);
 end
 
+function signal = initial_zc_very_coarse_time_sync(signal,zc_4_peak_samp,overhead)
+    ofdm_sym_len = 1024;
+    cp_len = 72;
+    cp_len_ends = 80;
+    packet_length = 9980;
+    
+    samp_diff_sym_4 = (2* (ofdm_sym_len+cp_len) + ofdm_sym_len+cp_len_ends ); %sample difference between symbols
+    first_index = max(zc_4_peak_samp-samp_diff_sym_4-overhead,1);
+    last_index = min(zc_4_peak_samp-samp_diff_sym_4+packet_length+overhead,length(signal)-1);
+    signal = signal(first_index:last_index);
+
+end
 % TESTED
 function [samp_offset, phase_offset] = find_samp_and_phase_offset(signal, zc_symbol_4, zc_symbol_6)
     ofdm_sym_len = 1024;
@@ -153,7 +171,7 @@ function [zc_symbol_4, zc_symbol_6] = create_zc_symbols()
 end
 
 % TESTED
-function data_only_cp = extract_data_cp(zc_symbol_4, raw_samples)
+function [data_only_cp,zc_4_peak_samp] = extract_data_cp(zc_symbol_4, raw_samples)
     cp_len = 72;
 
     corr1 = do_fast_corr(raw_samples, zc_symbol_4);
@@ -161,6 +179,9 @@ function data_only_cp = extract_data_cp(zc_symbol_4, raw_samples)
     [~,zc_4_peak_samp] = max(abs(corr1));
     data_cp_samp = zc_4_peak_samp - length(zc_symbol_4) - cp_len + 1;
     data_only_cp = raw_samples(data_cp_samp : data_cp_samp + cp_len - 1);
+    
+    %normalize samples to regular samples.
+    zc_4_peak_samp = zc_4_peak_samp-length(zc_symbol_4)+1;
 end
 
 % TESTED
@@ -200,7 +221,10 @@ function demod_channel_est = ofdm_demod_with_ch_est(sig,zc_seq_sym_4)
     zc_4_cand = sig(zc_4_sample:zc_4_sample+cp_len+ofdm_sym_len-1); %zc_4 candidate
     H = fft(zc_4_cand(cp_len+1:end))./fft(zc_seq_sym_4(cp_len+1:end)); %estimate channel
     
+    %ofdm symbols 2 - 8
     sig2_8 = sig(ofdm_sym_len+cp_len_extended+1:end-ofdm_sym_len-cp_len_extended); %symbols 2 - 8
+    
+    %ofdm symbol 9
     sig9 = sig(end-ofdm_sym_len+1:end);                                %symbols 9
     
     demod2_8 = reshape(sig2_8,ofdm_sym_len+cp_len,[]);
@@ -216,7 +240,9 @@ function demod_channel_est = ofdm_demod_with_ch_est(sig,zc_seq_sym_4)
     demod_channel_est = reshape(demod_channel_est,ofdm_sym_len,[]);
     demod_channel_est = [demod_channel_est(213:512,:); demod_channel_est(514:813,:)];
     
+    %flatten matrix
     demod_channel_est = demod_channel_est(:);
+
 end
 
 % TESTED
