@@ -4,24 +4,26 @@
 % │  Date   -   The 23 until 30 of April 2026   │
 % ┕—————————————————————————————————————————————┙
 
-% The goal of this project is to extract the data from the given drone.
-% Steps:
-%
-% 1) Use the B210 SDR to capture real-time samples
-% 2) Those samples go through the Physical Layer:
-%   2.1) Time/Phase/Frequency synchronization
-%   2.2) OFDM and QPSK demod
-% 3) The bits (in hex form) go to the Data Layer:
-%   3.1) They expirence XOR masks, Cyclical buffer manipulations
-%   3.2) Then we apply a Turbo decoder for ECC, using S/P1/P2 with hard viterby
-%   3.3) More data and bits manipulations such as interleavers/padding/etc..
-%   3.4) CRC24 check on the bits, packet data extraction and another CRC16 checks
-% 4) Then we use the (lat, lon, alt) = (Latitude, Longitude, Altitude) [meters],
-%    to define a 3D point on Earth.
-% 5) We then use a series of points show a GUI animation in 2D and 3D of
-%    the path the drone took. (We also record this path as a video and sent it via telegram)
-%
-% GitHub repo: https://github.com/OmerKarp/drone_project
+% ┌———————————————————————————————————————————————————————————————————————————————————————————————┑
+% │  The goal of this project is to extract the data from the given drone.                        │
+% │  Steps:                                                                                       │
+% │                                                                                               │
+% │   1) Use the B210 SDR to capture real-time samples                                            │
+% │   2) Those samples go through the Physical Layer:                                             │
+% │    2.1) Time/Phase/Frequency synchronization                                                  │
+% │    2.2) OFDM and QPSK demod                                                                   │
+% │  3) The bits (in hex form) go to the Data Layer:                                              │
+% │    3.1) They expirence XOR masks, Cyclical buffer manipulations                               │
+% │    3.2) Then we apply a Turbo decoder for ECC, using S/P1/P2 with hard viterby                │
+% │    3.3) More data and bits manipulations such as interleavers/padding/etc..                   │
+% │    3.4) CRC24 check on the bits, packet data extraction and another CRC16 checks              │
+% │  4) Then we use the (lat, lon, alt) = (Latitude, Longitude, Altitude) [meters],               │
+% │     to define a 3D point on Earth.                                                            │
+% │  5) We then use a series of points show a GUI animation in 2D and 3D of                       │
+% │     the path the drone took. (We also record this path as a video and sent it via telegram)   │
+% │                                                                                               │
+% │                      GitHub repo: https://github.com/OmerKarp/drone_project                   │
+% ┕———————————————————————————————————————————————————————————————————————————————————————————————┙
 
 %% <================== SDR Layer ==================>
 
@@ -36,7 +38,7 @@ is_showing_path = false;
 fc = 2.4295e9;
 fs = 15.36e6;
 packet_length = 9960;
-packets_per_buffer = 1;
+packets_per_buffer = 12;
 packet_overlap = 1;
 buffer = zeros((packets_per_buffer+packet_overlap)*packet_length,1);
 last_buffer = zeros(packet_overlap*packet_length,1);
@@ -48,7 +50,7 @@ mcr = 15.36e6;
 decim = round(mcr/fs);    
 
 rx1 = comm.SDRuReceiver('Platform', 'B210', ...
-    'SerialNum', '356E654', ...
+    'SerialNum', '34D6290', ...
     'CenterFrequency', fc, ...
     'Gain', 20, ...
     'OutputDataType', 'double', ...
@@ -56,14 +58,15 @@ rx1 = comm.SDRuReceiver('Platform', 'B210', ...
     'SamplesPerFrame',2^12, ...
     'DecimationFactor', decim); 
 
-rx1.ChannelMapping = 2; 
+rx1.ChannelMapping = 1;
 rx1.ReceiveAntennaPort = 'RX2';
 
 % Main loop
 number_of_frames = 10000;
 frames = 0;
-positions = zeros(3, 10);
+positions = zeros(3, 100);
 position_index = 1;
+freq_index = 1;
 
 while frames < number_of_frames
     buffer = [last_buffer ;capture(rx1, packets_per_buffer*packet_length)];
@@ -72,7 +75,7 @@ while frames < number_of_frames
 
     if isempty(raw_hex)
         %disp("(-) No signal found")
-        rx1.CenterFrequency = get_new_freq(); % get the new fc
+        [rx1.CenterFrequency, freq_index] = get_new_freq(freq_index); % get the new fc
 
     elseif position_index < length(positions) % if there is room left
         disp(raw_hex);
@@ -81,10 +84,10 @@ while frames < number_of_frames
         if is_data_corrupted
             disp("(-) Packet is corrupted!")
             % positions(:, position_index) = positions(:, max(position_index - 1, 1)); % Stay at the last known position
-            positions(:, position_index) = [packet_obj.AppLatitude, packet_obj.AppLongitude, packet_obj.Altitude];
-        else
-            positions(:, position_index) = [packet_obj.AppLatitude, packet_obj.AppLongitude, packet_obj.Altitude];
         end
+
+        positions(:, position_index) = [packet_obj.AppLatitude, packet_obj.AppLongitude, packet_obj.Altitude];
+
         position_index = position_index + 1;
     end
 
@@ -103,9 +106,10 @@ if is_showing_path
     reply_path(lat, lon, alt, is_recording_path)
 end
 
-function new_freq = get_new_freq()
+function [new_freq, new_freq_index]= get_new_freq(freq_index)
     freq_list = [2.3995e9, 2.4145e9, 2.4295e9, 2.4445e9, 2.4595e9];
-    new_freq = freq_list(randi(5)); % get a random number from 1 to 5
+    new_freq_index = mod(freq_index, 5) + 1;
+    new_freq = freq_list(new_freq_index);
 end
 
 %% <================== Physical Layer ==================>
@@ -136,8 +140,11 @@ function raw_hex = physical_layer_demod(signal,papr_thresh,fs)
     signal = initial_zc_very_coarse_time_sync(signal,zc_4_peak_samp,overhead);
 
     % Find freq_offset coarse
-    freq_offset_coarse = find_freq_offset_coarse(signal, cp_symbol3, fs);
-
+    [freq_offset_coarse,is_boundaries] = find_freq_offset_coarse(signal, cp_symbol3, fs);
+    if ~is_boundaries
+        raw_hex = [];
+        return;
+    end
     % Correction with freq_coarse
     signal = fix_freq(signal, freq_offset_coarse, fs);
     
@@ -215,18 +222,23 @@ function correct_freq_signal = fix_freq(raw_samples, freq_offset, fs)
 end
 
 % TESTED
-function freq_offset_coarse = find_freq_offset_coarse(raw_samples, data_only_cp, fs)
+function [freq_offset_coarse,is_boundaries_valid] = find_freq_offset_coarse(raw_samples, data_only_cp, fs)
     ofdm_sym_len = 1024;
-
+    is_boundaries_valid = 1;
     corr_with_data_cp = do_fast_corr(raw_samples, data_only_cp);
 
     sig2corr = [1 ; zeros(1023,1) ; 1];
     corr_2_peaks = do_fast_corr(abs(corr_with_data_cp), sig2corr);
 
     [~,first_peak_samp] = max(abs(corr_2_peaks));
-    first_peak_samp  = first_peak_samp - 1024;
+    first_peak_samp  = first_peak_samp - ofdm_sym_len;
     second_peak_samp = first_peak_samp + ofdm_sym_len;
-
+    
+    if(first_peak_samp < 1  || second_peak_samp>length(corr_with_data_cp))
+        is_boundaries_valid = 0;
+        freq_offset_coarse = 0;
+        return
+    end
     freq_offset_coarse = angle(conj(corr_with_data_cp(first_peak_samp))*corr_with_data_cp(second_peak_samp))./(2*pi*(ofdm_sym_len-1)/fs);
 end
 
@@ -282,6 +294,7 @@ function [data_only_cp,zc_4_peak_samp,is_threshold] = extract_symbol3_cp(zc_symb
 end
 
 % TESTED
+%does corr with fft - last sample should be the peak.
 function corr = do_fast_corr(sig1, sig2)
     % make that sig1 is the longer one, else switch
     if length(sig2) > length(sig1)
@@ -870,7 +883,7 @@ function reply_path(lat, lon, alt, is_record_video)
     end
 end
 
-% Author - Omer Karp
+
 % Description - Helper function for the globe
 function z = heightToZoomLevel(h,lat)
     earthCircumference = 2*pi*6378137;
